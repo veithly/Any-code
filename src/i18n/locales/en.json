@@ -1008,7 +1008,15 @@
     "result": "Result",
     "executionFailed": "Execution Failed",
     "executionResult": "Execution Result",
-    "waitingForResult": "Waiting for execution result..."
+    "waitingForResult": "Waiting for execution result...",
+    "performanceModeEnabled": "⚠️ Large file changes detected, performance mode enabled",
+    "unchangedLines": "... {{count}} unchanged lines ...",
+    "thinkingProcess": "Thinking Process",
+    "executeCommand": "Execute Command",
+    "copyCommand": "Copy Command",
+    "openWithDefault": "Open with default application",
+    "collapseResult": "Collapse Result",
+    "expandAll": "Expand All"
   },
   "usageDashboard": {
     "today": "Today",

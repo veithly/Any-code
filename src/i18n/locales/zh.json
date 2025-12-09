@@ -1008,7 +1008,15 @@
     "result": "结果",
     "executionFailed": "执行失败",
     "executionResult": "执行结果",
-    "waitingForResult": "等待执行结果..."
+    "waitingForResult": "等待执行结果...",
+    "performanceModeEnabled": "⚠️ 文件变动较大，已启用性能模式",
+    "unchangedLines": "... {{count}} 未更改的行 ...",
+    "thinkingProcess": "思考过程",
+    "executeCommand": "执行命令",
+    "copyCommand": "复制命令",
+    "openWithDefault": "用系统默认应用打开",
+    "collapseResult": "收起结果",
+    "expandAll": "展开全部"
   },
   "usageDashboard": {
     "today": "今日",
