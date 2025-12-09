@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, MoreHorizontal, MessageSquare, ArrowLeft, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from '@/hooks/useTranslation';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +54,7 @@ export const TabManager: React.FC<TabManagerProps> = ({
   initialSession,
   initialProjectPath,
 }) => {
+  const { t } = useTranslation();
   const {
     tabs,
     createNewTab,
@@ -208,7 +210,7 @@ export const TabManager: React.FC<TabManagerProps> = ({
               className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm transition-all duration-200 hover:shadow-md border-0"
             >
               <ArrowLeft className="h-4 w-4 mr-1.5" />
-              <span>返回</span>
+              <span>{t('tabs.back')}</span>
             </Button>
 
             {/* 分隔线 */}
@@ -281,7 +283,7 @@ export const TabManager: React.FC<TabManagerProps> = ({
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="bottom">
-                            <span className="text-xs">在新窗口中打开</span>
+                            <span className="text-xs">{t('tabs.openInNewWindow')}</span>
                           </TooltipContent>
                         </Tooltip>
 
@@ -307,19 +309,19 @@ export const TabManager: React.FC<TabManagerProps> = ({
                         {tab.session && (
                           <>
                             <div className="text-muted-foreground">
-                              会话 ID: {tab.session.id}
+                              {t('tabs.sessionId')} {tab.session.id}
                             </div>
                             <div className="text-muted-foreground">
-                              项目: {tab.projectPath || tab.session.project_path}
+                              {t('tabs.project')} {tab.projectPath || tab.session.project_path}
                             </div>
                             <div className="text-muted-foreground">
-                              创建时间: {new Date(tab.session.created_at * 1000).toLocaleString('zh-CN')}
+                              {t('tabs.createdAt')} {new Date(tab.session.created_at * 1000).toLocaleString('zh-CN')}
                             </div>
                           </>
                         )}
                         {!tab.session && tab.projectPath && (
                           <div className="text-muted-foreground">
-                            项目: {tab.projectPath}
+                            {t('tabs.project')} {tab.projectPath}
                           </div>
                         )}
                       </div>
@@ -338,7 +340,7 @@ export const TabManager: React.FC<TabManagerProps> = ({
                     <Plus className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>新建会话</TooltipContent>
+                <TooltipContent>{t('tabs.newSession')}</TooltipContent>
               </Tooltip>
             </div>
 
@@ -355,24 +357,24 @@ export const TabManager: React.FC<TabManagerProps> = ({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => createNewTab()}>
                   <Plus className="h-4 w-4 mr-2" />
-                  新建会话
+                  {t('tabs.newSession')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleCreateNewTabAsWindow}>
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  新建会话（独立窗口）
+                  {t('tabs.newSessionWindow')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => tabs.forEach(tab => closeTab(tab.id, true))}
                   disabled={tabs.length === 0}
                 >
-                  关闭所有标签页
+                  {t('tabs.closeAllTabs')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => tabs.filter(tab => !tab.isActive).forEach(tab => closeTab(tab.id, true))}
                   disabled={tabs.length <= 1}
                 >
-                  关闭其他标签页
+                  {t('tabs.closeOtherTabs')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -439,10 +441,10 @@ export const TabManager: React.FC<TabManagerProps> = ({
                   className="mb-8"
                 >
                   <h3 className="text-2xl font-bold mb-3 text-foreground">
-                    暂无活跃会话
+                    {t('tabs.noActiveSessions')}
                   </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    所有标签页已关闭。创建新会话开始工作，或返回主界面查看项目。
+                    {t('tabs.allTabsClosed')}
                   </p>
                 </motion.div>
 
@@ -459,7 +461,7 @@ export const TabManager: React.FC<TabManagerProps> = ({
                     className="w-full shadow-md hover:shadow-lg"
                   >
                     <Plus className="h-5 w-5 mr-2" />
-                    创建新会话
+                    {t('tabs.createNewSession')}
                   </Button>
                   <Button
                     size="lg"
@@ -468,7 +470,7 @@ export const TabManager: React.FC<TabManagerProps> = ({
                     className="w-full"
                   >
                     <ArrowLeft className="h-5 w-5 mr-2" />
-                    返回主界面
+                    {t('tabs.backToMain')}
                   </Button>
                 </motion.div>
               </div>
@@ -480,17 +482,17 @@ export const TabManager: React.FC<TabManagerProps> = ({
         <Dialog open={tabToClose !== null} onOpenChange={(open) => !open && setTabToClose(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>确认关闭标签页</DialogTitle>
+              <DialogTitle>{t('tabs.confirmCloseTab')}</DialogTitle>
               <DialogDescription>
-                此会话有未保存的更改，确定要关闭吗？关闭后更改将丢失。
+                {t('tabs.unsavedChangesWarning')}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" onClick={() => setTabToClose(null)}>
-                取消
+                {t('buttons.cancel')}
               </Button>
               <Button variant="destructive" onClick={confirmCloseTab}>
-                确认关闭
+                {t('tabs.confirmClose')}
               </Button>
             </DialogFooter>
           </DialogContent>
