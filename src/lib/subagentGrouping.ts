@@ -301,7 +301,7 @@ export function groupMessages(messages: ClaudeStreamMessage[]): MessageGroup[] {
     aggType: 'tool' | 'thinking'; // 记录当前聚合组的类型
   } | null = null;
 
-  intermediateGroups.forEach((group) => {
+  for (const group of intermediateGroups) {
     // 如果是子代理组，打断聚合
     if (group.type === 'subagent') {
       if (currentAggregation) {
@@ -313,7 +313,7 @@ export function groupMessages(messages: ClaudeStreamMessage[]): MessageGroup[] {
         currentAggregation = null;
       }
       finalGroups.push(group);
-      return;
+      continue;
     }
 
     // 处理普通消息
@@ -365,15 +365,14 @@ export function groupMessages(messages: ClaudeStreamMessage[]): MessageGroup[] {
       // 理论上不会执行到这里，但为了类型安全直接推入
       finalGroups.push(group);
     }
-  });
+  }
 
   // 结算最后的聚合
   if (currentAggregation) {
-    const agg = currentAggregation; // Fix: Assign to const to narrow type
     finalGroups.push({
       type: 'aggregated',
-      messages: agg.messages,
-      index: agg.startIndex
+      messages: currentAggregation.messages,
+      index: currentAggregation.startIndex
     });
   }
 
