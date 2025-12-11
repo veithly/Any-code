@@ -1176,6 +1176,8 @@
     "searchPrompts": "搜索提示词... (Ctrl+F)"
   },
   "projectList": {
+    "activeProjects": "活跃项目",
+    "deletedProjects": "已删除项目",
     "gridView": "网格视图",
     "listView": "列表视图",
     "projectListLabel": "项目列表",

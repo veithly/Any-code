@@ -1144,6 +1144,8 @@
     "searchPrompts": "Search prompts... (Ctrl+F)"
   },
   "projectList": {
+    "activeProjects": "Active Projects",
+    "deletedProjects": "Deleted Projects",
     "gridView": "Grid View",
     "listView": "List View",
     "projectListLabel": "Project List",
