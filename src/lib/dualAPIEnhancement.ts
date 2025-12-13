@@ -15,9 +15,13 @@
 
 import { ClaudeStreamMessage } from '@/types/claude';
 import { extractTextFromContent } from './sessionHelpers';
-import { PromptEnhancementProvider, callEnhancementAPI, normalizeOpenAIUrl } from './promptEnhancementService';
+import { LLMApiService, type LLMProvider } from '@/lib/services/llmApiService';
+import { callEnhancementAPI } from './promptEnhancementService';
 import { loadContextConfig } from './promptContextConfig';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+
+// 重新导出类型以保持向后兼容
+export type PromptEnhancementProvider = LLMProvider;
+export { normalizeOpenAIUrl } from '@/lib/services/llmApiService';
 
 /**
  * 第一次 API 调用的系统提示词（专门用于上下文提取）
@@ -306,201 +310,20 @@ ${messageList}
 
 /**
  * 调用上下文提取 API（使用专门的 system prompt）
+ * 使用统一的 LLMApiService
  */
 async function callContextExtractionAPI(
   provider: PromptEnhancementProvider,
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  // 直接调用底层的 API 函数，但使用自定义 system prompt
-  // 注意：这里不能使用 callEnhancementAPI，因为它会添加自己的 system prompt
-
-  // 根据 API 格式选择调用方式
-  if (provider.apiFormat === 'gemini') {
-    return await callGeminiFormatRaw(provider, systemPrompt, userPrompt);
-  } else if (provider.apiFormat === 'anthropic') {
-    return await callAnthropicFormatRaw(provider, systemPrompt, userPrompt);
-  } else {
-    return await callOpenAIFormatRaw(provider, systemPrompt, userPrompt);
-  }
-}
-
-/**
- * 原始 OpenAI 格式调用（不添加额外的 system prompt）
- */
-async function callOpenAIFormatRaw(
-  provider: PromptEnhancementProvider,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const requestBody: any = {
-    model: provider.model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    stream: false
-  };
-
-  if (provider.temperature !== undefined && provider.temperature !== null) {
-    requestBody.temperature = provider.temperature;
-  }
-  if (provider.maxTokens !== undefined && provider.maxTokens !== null) {
-    requestBody.max_tokens = provider.maxTokens;
-  }
-
-  // 🔧 使用 normalizeOpenAIUrl 确保 URL 格式正确（添加 /v1 前缀）
-  const normalizedUrl = normalizeOpenAIUrl(provider.apiUrl);
-  const fullEndpoint = `${normalizedUrl}/chat/completions`;
-
-  const response = await tauriFetch(fullEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${provider.apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
+  // 使用统一的 LLM API 服务
+  const response = await LLMApiService.call(provider, {
+    systemPrompt,
+    userPrompt,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API request failed: ${response.status} ${response.statusText}\n${errorText}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error('API returned empty content');
-  }
-
-  return content.trim();
-}
-
-/**
- * 原始 Anthropic 格式调用（/v1/messages）
- */
-async function callAnthropicFormatRaw(
-  provider: PromptEnhancementProvider,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const requestBody: any = {
-    model: provider.model,
-    max_tokens: provider.maxTokens || 4096,
-    system: systemPrompt,
-    messages: [
-      { role: 'user', content: userPrompt }
-    ],
-  };
-
-  if (provider.temperature !== undefined && provider.temperature !== null) {
-    requestBody.temperature = provider.temperature;
-  }
-
-  // 规范化 URL
-  let baseUrl = provider.apiUrl.trim();
-  while (baseUrl.endsWith('/')) {
-    baseUrl = baseUrl.slice(0, -1);
-  }
-  // 移除可能存在的 /messages 后缀
-  if (baseUrl.endsWith('/messages')) {
-    baseUrl = baseUrl.slice(0, -'/messages'.length);
-  }
-  // 确保有 /v1
-  if (!baseUrl.endsWith('/v1') && !baseUrl.match(/\/v\d+$/)) {
-    baseUrl = `${baseUrl}/v1`;
-  }
-
-  const endpoint = `${baseUrl}/messages`;
-
-  const response = await tauriFetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': provider.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Anthropic API request failed: ${response.status} ${response.statusText}\n${errorText}`);
-  }
-
-  const data = await response.json();
-
-  // Anthropic 返回格式: { content: [{ type: 'text', text: '...' }] }
-  if (!data.content || data.content.length === 0) {
-    if (data.error) {
-      throw new Error(`Anthropic API error: ${JSON.stringify(data.error)}`);
-    }
-    throw new Error('Anthropic API returned no content');
-  }
-
-  const textContent = data.content.find((c: any) => c.type === 'text');
-  if (!textContent || !textContent.text) {
-    throw new Error('Anthropic API returned empty text content');
-  }
-
-  return textContent.text.trim();
-}
-
-/**
- * 原始 Gemini 格式调用
- */
-async function callGeminiFormatRaw(
-  provider: PromptEnhancementProvider,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const requestBody: any = {
-    contents: [
-      {
-        parts: [
-          { text: `${systemPrompt}\n\n${userPrompt}` }
-        ]
-      }
-    ],
-  };
-
-  const generationConfig: any = {};
-  if (provider.temperature !== undefined && provider.temperature !== null) {
-    generationConfig.temperature = provider.temperature;
-  }
-  if (provider.maxTokens !== undefined && provider.maxTokens !== null) {
-    generationConfig.maxOutputTokens = provider.maxTokens;
-  }
-
-  if (Object.keys(generationConfig).length > 0) {
-    requestBody.generationConfig = generationConfig;
-  }
-
-  const baseUrl = provider.apiUrl.endsWith('/') ? provider.apiUrl.slice(0, -1) : provider.apiUrl;
-  const endpoint = `${baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}`;
-
-  const response = await tauriFetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API request failed: ${response.status} ${response.statusText}\n${errorText}`);
-  }
-
-  const data = await response.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!content) {
-    throw new Error('Gemini API returned empty response');
-  }
-
-  return content.trim();
+  return response.content;
 }
 
 /**

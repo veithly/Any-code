@@ -2,214 +2,85 @@
  * 提示词优化服务
  * 支持多个第三方API提供商（OpenAI、Deepseek、通义千问等）
  *
- * ⚡ 使用 Tauri HTTP 客户端绕过 CORS 限制
+ * ⚡ 使用统一的 LLMApiService 处理 API 调用
  */
 
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { LLMApiService, type LLMProvider } from '@/lib/services/llmApiService';
 
-export interface PromptEnhancementProvider {
-  id: string;
-  name: string;
-  apiUrl: string;
-  apiKey: string;
-  model: string;
-  temperature?: number;
-  maxTokens?: number;
-  enabled: boolean;
-  apiFormat?: 'openai' | 'gemini' | 'anthropic';  // ⚡ API 格式类型（支持 OpenAI、Gemini、Anthropic）
-}
+// 重新导出类型以保持向后兼容
+export type PromptEnhancementProvider = LLMProvider;
+export type { ApiFormat } from '@/lib/services/llmApiService';
 
-export interface PromptEnhancementConfig {
-  providers: PromptEnhancementProvider[];
-  lastUsedProviderId?: string;
-}
-
-const STORAGE_KEY = 'prompt_enhancement_providers';
-const ENCRYPTION_KEY = 'prompt_enhancement_encryption_salt';
-
-/**
- * URL 智能识别与规范化工具
- */
-
-// 已知的 Gemini API 域名
-const GEMINI_DOMAINS = [
-  'generativelanguage.googleapis.com',
-  'aiplatform.googleapis.com',
-];
-
-// 已知的 Anthropic API 域名
-const ANTHROPIC_DOMAINS = [
-  'api.anthropic.com',
-  'anthropic.com',
-];
-
-/**
- * 根据 URL 自动检测 API 格式
- * @param apiUrl API 地址
- * @returns 检测到的 API 格式
- */
-export function detectApiFormat(apiUrl: string): 'openai' | 'gemini' | 'anthropic' {
-  const url = apiUrl.toLowerCase().trim();
-
-  // 检测是否为 Gemini API
-  for (const domain of GEMINI_DOMAINS) {
-    if (url.includes(domain)) {
-      return 'gemini';
-    }
-  }
-
-  // 检测是否为 Anthropic API
-  for (const domain of ANTHROPIC_DOMAINS) {
-    if (url.includes(domain)) {
-      return 'anthropic';
-    }
-  }
-
-  // 检测 URL 路径中是否包含 /messages（Anthropic 特征）
-  if (url.includes('/v1/messages')) {
-    return 'anthropic';
-  }
-
-  // 默认使用 OpenAI 格式（最通用的兼容格式）
-  return 'openai';
-}
-
-/**
- * 规范化 OpenAI 格式的 API URL
- * 支持用户输入简化的基础 URL，自动补全端点路径
- *
- * @param baseUrl 用户输入的基础 URL
- * @returns 规范化后的完整 API URL（不含 /chat/completions，因为会在调用时添加）
- */
-export function normalizeOpenAIUrl(baseUrl: string): string {
-  let url = baseUrl.trim();
-
-  // 移除末尾斜杠
-  while (url.endsWith('/')) {
-    url = url.slice(0, -1);
-  }
-
-  // 如果已经包含 /chat/completions，移除它（因为调用时会添加）
-  if (url.endsWith('/chat/completions')) {
-    url = url.slice(0, -'/chat/completions'.length);
-  }
-
-  // 如果不包含 /v1，添加它
-  if (!url.endsWith('/v1')) {
-    // 检查是否包含其他版本路径如 /v2，如果有则不添加
-    if (!url.match(/\/v\d+$/)) {
-      url = `${url}/v1`;
-    }
-  }
-
-  return url;
-}
-
-/**
- * 规范化 Gemini 格式的 API URL
- *
- * @param baseUrl 用户输入的基础 URL
- * @returns 规范化后的基础 URL
- */
-export function normalizeGeminiUrl(baseUrl: string): string {
-  let url = baseUrl.trim();
-
-  // 移除末尾斜杠
-  while (url.endsWith('/')) {
-    url = url.slice(0, -1);
-  }
-
-  return url;
-}
-
-/**
- * 规范化 Anthropic 格式的 API URL
- * 支持用户输入简化的基础 URL，自动补全端点路径
- *
- * @param baseUrl 用户输入的基础 URL
- * @returns 规范化后的完整 API URL（不含 /messages，因为会在调用时添加）
- */
-export function normalizeAnthropicUrl(baseUrl: string): string {
-  let url = baseUrl.trim();
-
-  // 移除末尾斜杠
-  while (url.endsWith('/')) {
-    url = url.slice(0, -1);
-  }
-
-  // 如果已经包含 /messages，移除它（因为调用时会添加）
-  if (url.endsWith('/messages')) {
-    url = url.slice(0, -'/messages'.length);
-  }
-
-  // 如果不包含 /v1，添加它
-  if (!url.endsWith('/v1')) {
-    // 检查是否包含其他版本路径如 /v2，如果有则不添加
-    if (!url.match(/\/v\d+$/)) {
-      url = `${url}/v1`;
-    }
-  }
-
-  return url;
-}
-
-/**
- * 根据 API 格式规范化 URL
- */
-export function normalizeApiUrl(apiUrl: string, apiFormat?: 'openai' | 'gemini' | 'anthropic'): string {
-  const format = apiFormat || detectApiFormat(apiUrl);
-
-  if (format === 'gemini') {
-    return normalizeGeminiUrl(apiUrl);
-  } else if (format === 'anthropic') {
-    return normalizeAnthropicUrl(apiUrl);
-  } else {
-    return normalizeOpenAIUrl(apiUrl);
-  }
-}
+// 重新导出 URL 规范化函数以保持向后兼容
+export { detectApiFormat, normalizeApiUrl, normalizeOpenAIUrl, normalizeAnthropicUrl, normalizeGeminiUrl } from '@/lib/services/llmApiService';
 
 /**
  * 预设提供商模板
  */
 export const PRESET_PROVIDERS = {
   openai: {
+    id: 'openai',
     name: 'OpenAI GPT-4',
     apiUrl: 'https://api.openai.com/v1',
     model: 'gpt-4o',
     apiFormat: 'openai' as const,
-    // ⚡ 不设置 temperature 和 maxTokens，让API使用默认值
+    enabled: false,
+    apiKey: '',
   },
   deepseek: {
+    id: 'deepseek',
     name: 'Deepseek Chat',
     apiUrl: 'https://api.deepseek.com/v1',
     model: 'deepseek-chat',
     apiFormat: 'openai' as const,
+    enabled: false,
+    apiKey: '',
   },
   qwen: {
+    id: 'qwen',
     name: '通义千问 Max',
     apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     model: 'qwen-max',
     apiFormat: 'openai' as const,
+    enabled: false,
+    apiKey: '',
   },
   siliconflow: {
+    id: 'siliconflow',
     name: 'SiliconFlow Qwen',
     apiUrl: 'https://api.siliconflow.cn/v1',
     model: 'Qwen/Qwen2.5-72B-Instruct',
     apiFormat: 'openai' as const,
+    enabled: false,
+    apiKey: '',
   },
   gemini: {
+    id: 'gemini',
     name: 'Google Gemini 2.0',
     apiUrl: 'https://generativelanguage.googleapis.com',
     model: 'gemini-2.0-flash-exp',
     apiFormat: 'gemini' as const,
+    enabled: false,
+    apiKey: '',
   },
   anthropic: {
+    id: 'anthropic',
     name: 'Anthropic Claude',
     apiUrl: 'https://api.anthropic.com',
     model: 'claude-sonnet-4-20250514',
     apiFormat: 'anthropic' as const,
+    enabled: false,
+    apiKey: '',
   },
 };
+
+export interface PromptEnhancementConfig {
+  providers: LLMProvider[];
+  lastUsedProviderId?: string;
+}
+
+const STORAGE_KEY = 'prompt_enhancement_providers';
+const ENCRYPTION_KEY = 'prompt_enhancement_encryption_salt';
 
 /**
  * 简单的XOR加密（前端基础保护，不是真正安全的加密）
@@ -296,217 +167,7 @@ export function saveConfig(config: PromptEnhancementConfig): void {
 }
 
 /**
- * 调用 OpenAI 格式的API
- */
-async function callOpenAIFormat(
-  provider: PromptEnhancementProvider,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  // ⚡ 只包含必需字段，可选参数由用户决定是否添加
-  const requestBody: any = {
-    model: provider.model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    stream: false  // 🔧 明确禁用流式响应
-  };
-
-  // 只在用户设置时才添加可选参数
-  if (provider.temperature !== undefined && provider.temperature !== null) {
-    requestBody.temperature = provider.temperature;
-  }
-  if (provider.maxTokens !== undefined && provider.maxTokens !== null) {
-    requestBody.max_tokens = provider.maxTokens;
-  }
-
-  // ⚡ 智能规范化 API URL（支持用户输入简化的基础 URL）
-  const normalizedUrl = normalizeOpenAIUrl(provider.apiUrl);
-  const fullEndpoint = `${normalizedUrl}/chat/completions`;
-
-  console.log('[PromptEnhancement] OpenAI URL normalized:', provider.apiUrl, '->', fullEndpoint);
-
-  // ⚡ 使用 Tauri HTTP 客户端绕过 CORS 限制
-  const response = await tauriFetch(fullEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${provider.apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API request failed: ${response.status} ${response.statusText}\n${errorText}`);
-  }
-
-  const responseText = await response.text();
-  let data;
-  try {
-    data = JSON.parse(responseText);
-  } catch (parseError) {
-    throw new Error(`Failed to parse API response: ${parseError}`);
-  }
-
-  // 检查响应数据完整性
-  if (!data.choices || data.choices.length === 0) {
-    if (data.error) {
-      throw new Error(`API error: ${JSON.stringify(data.error)}`);
-    }
-    throw new Error(`API returned no choices`);
-  }
-
-  const choice = data.choices[0];
-  if (!choice.message) {
-    throw new Error(`Choice has no message`);
-  }
-
-  const content = choice.message.content;
-  if (!content || content.trim() === '') {
-    if (choice.finish_reason) {
-      throw new Error(`Content is empty. Finish reason: ${choice.finish_reason}`);
-    }
-    throw new Error('API returned empty content');
-  }
-
-  return content.trim();
-}
-
-/**
- * 调用 Gemini 格式的API
- */
-async function callGeminiFormat(
-  provider: PromptEnhancementProvider,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const requestBody: any = {
-    contents: [
-      {
-        parts: [
-          { text: systemPrompt + '\n\n' + userPrompt }
-        ]
-      }
-    ],
-  };
-  
-  // ⚡ 只在用户设置时才添加可选参数
-  const generationConfig: any = {};
-  if (provider.temperature !== undefined && provider.temperature !== null) {
-    generationConfig.temperature = provider.temperature;
-  }
-  if (provider.maxTokens !== undefined && provider.maxTokens !== null) {
-    generationConfig.maxOutputTokens = provider.maxTokens;
-  }
-  
-  // 只在有配置时才添加 generationConfig
-  if (Object.keys(generationConfig).length > 0) {
-    requestBody.generationConfig = generationConfig;
-  }
-
-  // ⚡ 修复：处理 apiUrl 末尾可能有的斜杠，避免双斜杠
-  const baseUrl = provider.apiUrl.endsWith('/') ? provider.apiUrl.slice(0, -1) : provider.apiUrl;
-
-  // Gemini API 格式：/v1beta/models/{model}:generateContent
-  const endpoint = `${baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}`;
-
-  // ⚡ 使用 Tauri HTTP 客户端绕过 CORS 限制
-  const response = await tauriFetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API request failed: ${response.status} ${response.statusText}\n${errorText}`);
-  }
-
-  const data = await response.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!content) {
-    throw new Error('Gemini API returned empty response');
-  }
-
-  return content.trim();
-}
-
-/**
- * 调用 Anthropic 格式的API（/v1/messages）
- */
-async function callAnthropicFormat(
-  provider: PromptEnhancementProvider,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  // Anthropic API 请求格式
-  const requestBody: any = {
-    model: provider.model,
-    max_tokens: provider.maxTokens || 4096,
-    system: systemPrompt,
-    messages: [
-      { role: 'user', content: userPrompt }
-    ],
-  };
-
-  // 只在用户设置时才添加可选参数
-  if (provider.temperature !== undefined && provider.temperature !== null) {
-    requestBody.temperature = provider.temperature;
-  }
-
-  // ⚡ 智能规范化 API URL（支持用户输入简化的基础 URL）
-  const normalizedUrl = normalizeAnthropicUrl(provider.apiUrl);
-  const fullEndpoint = `${normalizedUrl}/messages`;
-
-  console.log('[PromptEnhancement] Anthropic URL normalized:', provider.apiUrl, '->', fullEndpoint);
-
-  // ⚡ 使用 Tauri HTTP 客户端绕过 CORS 限制
-  const response = await tauriFetch(fullEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': provider.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Anthropic API request failed: ${response.status} ${response.statusText}\n${errorText}`);
-  }
-
-  const responseText = await response.text();
-  let data;
-  try {
-    data = JSON.parse(responseText);
-  } catch (parseError) {
-    throw new Error(`Failed to parse Anthropic API response: ${parseError}`);
-  }
-
-  // 检查响应数据完整性
-  if (!data.content || data.content.length === 0) {
-    if (data.error) {
-      throw new Error(`Anthropic API error: ${JSON.stringify(data.error)}`);
-    }
-    throw new Error(`Anthropic API returned no content`);
-  }
-
-  // Anthropic 返回格式: { content: [{ type: 'text', text: '...' }] }
-  const textContent = data.content.find((c: any) => c.type === 'text');
-  if (!textContent || !textContent.text) {
-    throw new Error('Anthropic API returned empty text content');
-  }
-
-  return textContent.text.trim();
-}
-
-/**
- * 调用提示词优化API（支持多种格式）
+ * 调用提示词优化API（使用统一的 LLMApiService）
  */
 export async function callEnhancementAPI(
   provider: PromptEnhancementProvider,
@@ -557,21 +218,16 @@ ${context && context.length > 0 ? `\n【当前对话上下文】\n${context.join
 
   const userPrompt = `请优化以下提示词：\n\n${prompt}`;
 
-  // ⚡ 智能检测 API 格式：优先使用用户指定的格式，否则自动检测
-  const effectiveFormat = provider.apiFormat || detectApiFormat(provider.apiUrl);
-
-  console.log('[PromptEnhancement] Calling API:', provider.name, 'format:', effectiveFormat, '(user specified:', provider.apiFormat || 'auto-detect', ')');
+  console.log('[PromptEnhancement] Calling API:', provider.name);
 
   try {
-    // 根据API格式调用不同的函数
-    if (effectiveFormat === 'gemini') {
-      return await callGeminiFormat(provider, systemPrompt, userPrompt);
-    } else if (effectiveFormat === 'anthropic') {
-      return await callAnthropicFormat(provider, systemPrompt, userPrompt);
-    } else {
-      // 默认使用 OpenAI 格式
-      return await callOpenAIFormat(provider, systemPrompt, userPrompt);
-    }
+    // 使用统一的 LLM API 服务
+    const response = await LLMApiService.call(provider, {
+      systemPrompt,
+      userPrompt,
+    });
+
+    return response.content;
   } catch (error) {
     console.error('[PromptEnhancement] API call failed:', error);
     throw error;
