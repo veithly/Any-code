@@ -56,7 +56,7 @@ export function inputReducer(state: InputState, action: InputAction): InputState
     case "SET_ENABLE_PROJECT_CONTEXT":
       return { ...state, enableProjectContext: action.payload };
     case "RESET_INPUT":
-      return { ...state, prompt: "" };
+      return { ...state, prompt: "", isExpanded: false };
     default:
       return state;
   }
