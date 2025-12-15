@@ -36,7 +36,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Project } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, filterValidGeminiSessions } from "@/lib/utils";
 import { formatAbsoluteDateTime } from "@/lib/date-utils";
 import { Pagination } from "@/components/ui/pagination";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -200,12 +200,21 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   /**
    * Get session breakdown by engine for a project
+   * 只计算有效会话（与 SessionList 显示逻辑尽量一致）
+   *
+   * 注意：
+   * - Claude sessions: 在此阶段只有 ID 列表，无法判断 first_message，保持原样
+   * - Codex sessions: 始终显示（按 SessionList 逻辑）
+   * - Gemini sessions: 过滤掉没有 firstMessage 的会话
    */
   const getSessionBreakdown = (project: Project): { claude: number; codex: number; gemini: number; total: number } => {
     // Claude Code sessions count
+    // 注意：project.sessions 只是 ID 数组，无法在此处过滤有效性
+    // 如果需要精确计数，需要修改后端 API 返回完整的 Session 对象
     const claudeSessionCount = project.sessions.length;
 
     // Codex sessions count - filter by normalized project path
+    // Codex 会话始终有效（按 SessionList 逻辑）
     const projectPathNorm = normalizePath(project.path);
 
     const codexSessionCount = codexSessions.filter(cs => {
@@ -213,9 +222,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return csPathNorm === projectPathNorm;
     }).length;
 
-    // Gemini sessions count - from cached map
+    // Gemini sessions count - from cached map, 只计算有 firstMessage 的会话
     const geminiSessions = geminiSessionsMap.get(project.path) || [];
-    const geminiSessionCount = geminiSessions.length;
+    const geminiSessionCount = filterValidGeminiSessions(geminiSessions).length;
 
     return {
       claude: claudeSessionCount,

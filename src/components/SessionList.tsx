@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, filterValidSessions } from "@/lib/utils";
 import { formatUnixTimestamp, formatISOTimestamp, truncateText, getFirstLine } from "@/lib/date-utils";
 import type { Session, ClaudeMdFile } from "@/lib/api";
 import { api } from "@/lib/api";
@@ -152,13 +152,8 @@ export const SessionList: React.FC<SessionListProps> = ({
   };
 
   // 🔧 过滤掉空白无用的会话（没有 first_message 或 id 为空的）
-  const validSessions = sessions.filter(session =>
-    session.id && session.id.trim() !== '' &&
-    (
-      (session.first_message && session.first_message.trim() !== '') ||
-      session.engine === 'codex' // Always show Codex sessions, they might use default titles
-    )
-  );
+  // 使用共享的会话验证函数，确保与项目计数逻辑一致
+  const validSessions = filterValidSessions(sessions);
 
   // 🆕 根据筛选器过滤会话类型
   const filteredSessions = validSessions.filter(session => {

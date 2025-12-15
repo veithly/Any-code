@@ -76,4 +76,87 @@ export function normalizeUsageData(usage: any): UsageData {
 export function calculateTotalTokens(usage: UsageData): number {
   return usage.input_tokens + usage.output_tokens +
          (usage.cache_creation_tokens || 0) + (usage.cache_read_tokens || 0);
+}
+
+/**
+ * Session validation interface - minimal fields needed for validation
+ */
+export interface ValidatableSession {
+  id: string;
+  first_message?: string;
+  engine?: 'claude' | 'codex' | 'gemini';
+}
+
+/**
+ * 验证会话是否为有效会话（用于显示）
+ *
+ * 有效会话的条件：
+ * - 必须有非空的 id
+ * - 必须满足以下条件之一：
+ *   1. 有非空的 first_message（Claude/Gemini 会话）
+ *   2. 是 Codex 会话（Codex 使用默认标题，可能没有 first_message）
+ *
+ * @param session - 要验证的会话对象
+ * @returns 是否为有效会话
+ *
+ * @example
+ * isValidSession({ id: '123', first_message: 'Hello' }) // true
+ * isValidSession({ id: '123', first_message: '' }) // false
+ * isValidSession({ id: '123', engine: 'codex' }) // true (Codex 始终有效)
+ */
+export function isValidSession(session: ValidatableSession): boolean {
+  return Boolean(
+    session.id &&
+    session.id.trim() !== '' &&
+    (
+      (session.first_message && session.first_message.trim() !== '') ||
+      session.engine === 'codex' // Codex 会话始终显示
+    )
+  );
+}
+
+/**
+ * 过滤出所有有效的会话
+ *
+ * @param sessions - 会话数组
+ * @returns 有效会话数组
+ *
+ * @example
+ * const sessions = [
+ *   { id: '1', first_message: 'Hello' },
+ *   { id: '2', first_message: '' },
+ *   { id: '3', engine: 'codex' }
+ * ];
+ * filterValidSessions(sessions) // [{ id: '1', ... }, { id: '3', ... }]
+ */
+export function filterValidSessions<T extends ValidatableSession>(sessions: T[]): T[] {
+  return sessions.filter(isValidSession);
+}
+
+/**
+ * GeminiSessionInfo 验证接口（用于 ProjectList 计数）
+ */
+export interface ValidatableGeminiSession {
+  sessionId: string;
+  firstMessage?: string;
+}
+
+/**
+ * 验证 Gemini 会话是否有效（有 firstMessage）
+ * 用于 ProjectList 中对 GeminiSessionInfo 的过滤
+ */
+export function isValidGeminiSession(session: ValidatableGeminiSession): boolean {
+  return Boolean(
+    session.sessionId &&
+    session.sessionId.trim() !== '' &&
+    session.firstMessage &&
+    session.firstMessage.trim() !== ''
+  );
+}
+
+/**
+ * 过滤有效的 Gemini 会话
+ */
+export function filterValidGeminiSessions<T extends ValidatableGeminiSession>(sessions: T[]): T[] {
+  return sessions.filter(isValidGeminiSession);
 } 
