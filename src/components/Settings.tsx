@@ -204,9 +204,11 @@ export const Settings: React.FC<SettingsProps> = ({
           deny: denyRules.map(rule => rule.value).filter(v => v.trim()),
         },
         env: {
-          // 保留现有的所有环境变量（包括代理商配置的ANTHROPIC_*变量）
-          ...settings?.env,
-          // 然后添加/覆盖UI中配置的环境变量
+          // 只保留代理商配置的 ANTHROPIC_* 变量（这些变量由代理商设置页面管理）
+          ...Object.fromEntries(
+            Object.entries(settings?.env || {}).filter(([key]) => key.startsWith('ANTHROPIC_'))
+          ),
+          // UI 中配置的环境变量完全由用户管理（支持删除）
           ...envVars
             .filter(envVar => envVar.enabled) // 只保存启用的环境变量
             .reduce((acc, { key, value }) => {
