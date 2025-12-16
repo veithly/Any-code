@@ -5,7 +5,7 @@
  * 支持流式输出时的打字机效果
  */
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { Maximize2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { getClaudeSyntaxTheme } from "@/lib/claudeSyntaxTheme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTypewriter } from "@/hooks/useTypewriter";
+import { checkSyntaxHighlightSupport } from "@/lib/syntaxHighlightCompat";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export interface CodePreviewProps {
   /** 代码内容 */
@@ -51,6 +53,7 @@ export const CodePreview: React.FC<CodePreviewProps> = ({
 }) => {
   const { theme } = useTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [supportsSyntaxHighlight] = useState(() => checkSyntaxHighlightSupport());
 
   // 使用打字机效果
   const {
@@ -124,21 +127,36 @@ export const CodePreview: React.FC<CodePreviewProps> = ({
         onDoubleClick={handleDoubleClick}
         title={isTyping ? "双击跳过打字效果" : undefined}
       >
-        <SyntaxHighlighter
-          language={language}
-          style={getClaudeSyntaxTheme(theme === 'dark')}
-          customStyle={{
-            margin: 0,
-            padding: '1rem',
-            background: 'transparent',
-            fontSize: '0.75rem',
-            lineHeight: '1.5',
-            overflowX: 'auto'
-          }}
-          wrapLongLines={false}
-        >
-          {textToDisplay}
-        </SyntaxHighlighter>
+        {supportsSyntaxHighlight ? (
+          <ErrorBoundary
+            fallback={() => (
+              <pre className="m-0 p-4 bg-transparent text-xs leading-relaxed overflow-x-auto font-mono text-foreground/80">
+                {textToDisplay}
+              </pre>
+            )}
+          >
+            <SyntaxHighlighter
+              language={language}
+              style={getClaudeSyntaxTheme(theme === 'dark')}
+              customStyle={{
+                margin: 0,
+                padding: '1rem',
+                background: 'transparent',
+                fontSize: '0.75rem',
+                lineHeight: '1.5',
+                overflowX: 'auto'
+              }}
+              wrapLongLines={false}
+            >
+              {textToDisplay}
+            </SyntaxHighlighter>
+          </ErrorBoundary>
+        ) : (
+          // 浏览器不支持语法高亮时降级为纯文本
+          <pre className="m-0 p-4 bg-transparent text-xs leading-relaxed overflow-x-auto font-mono text-foreground/80">
+            {textToDisplay}
+          </pre>
+        )}
         {/* 打字中光标 */}
         {isTyping && (
           <span className="inline-block w-2 h-4 ml-1 mb-4 bg-emerald-500 animate-pulse rounded-sm" />

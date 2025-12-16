@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getClaudeSyntaxTheme } from "@/lib/claudeSyntaxTheme";
 import { tokenExtractor } from "@/lib/tokenExtractor";
+import { checkSyntaxHighlightSupport } from "@/lib/syntaxHighlightCompat";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ClaudeStreamMessage } from "@/types/claude";
 
 interface ResultMessageProps {
@@ -131,30 +133,64 @@ export const ResultMessage: React.FC<ResultMessageProps> = ({ message, className
                 }
               >
                 {resultContent && (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code(props: any) {
-                        const { inline, className: codeClassName, children, ...rest } = props;
-                        const match = /language-(\w+)/.exec(codeClassName || "");
-                        return !inline && match ? (
-                          <SyntaxHighlighter
-                            style={syntaxTheme as any}
-                            language={match[1]}
-                            PreTag="div"
-                          >
-                            {String(children).replace(/\n$/, "")}
-                          </SyntaxHighlighter>
-                        ) : (
-                          <code className={codeClassName} {...rest}>
-                            {children}
-                          </code>
-                        );
-                      },
-                    }}
+                  <ErrorBoundary
+                    fallback={() => (
+                      <div className="text-sm text-foreground/80 whitespace-pre-wrap break-words font-mono bg-muted/20 p-3 rounded">
+                        {resultContent}
+                      </div>
+                    )}
                   >
-                    {resultContent}
-                  </ReactMarkdown>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code(props: any) {
+                          const { inline, className: codeClassName, children, ...rest } = props;
+                          const match = /language-(\w+)/.exec(codeClassName || "");
+                          const codeStr = String(children).replace(/\n$/, "");
+                          const supportsSyntax = checkSyntaxHighlightSupport();
+
+                          // 如果是代码块且浏览器支持语法高亮
+                          if (!inline && match && supportsSyntax) {
+                            return (
+                              <ErrorBoundary
+                                fallback={() => (
+                                  <pre className="p-3 text-xs font-mono overflow-auto text-foreground/80 bg-muted/20 rounded">
+                                    {codeStr}
+                                  </pre>
+                                )}
+                              >
+                                <SyntaxHighlighter
+                                  style={syntaxTheme as any}
+                                  language={match[1]}
+                                  PreTag="div"
+                                >
+                                  {codeStr}
+                                </SyntaxHighlighter>
+                              </ErrorBoundary>
+                            );
+                          }
+
+                          // 代码块但不支持语法高亮，降级为纯文本
+                          if (!inline && match) {
+                            return (
+                              <pre className="p-3 text-xs font-mono overflow-auto text-foreground/80 bg-muted/20 rounded">
+                                {codeStr}
+                              </pre>
+                            );
+                          }
+
+                          // 行内代码
+                          return (
+                            <code className={codeClassName} {...rest}>
+                              {children}
+                            </code>
+                          );
+                        },
+                      }}
+                    >
+                      {resultContent}
+                    </ReactMarkdown>
+                  </ErrorBoundary>
                 )}
 
                 {errorMessage && (

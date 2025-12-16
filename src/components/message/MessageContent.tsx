@@ -8,36 +8,13 @@ import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { checkSyntaxHighlightSupport } from "@/lib/syntaxHighlightCompat";
 
 interface CodeBlockRendererProps {
   language: string;
   code: string;
   syntaxTheme: any;
 }
-
-/**
- * 检测浏览器是否支持语法高亮所需的正则表达式特性
- * 主要检测 lookbehind assertions (旧版 Safari/WebKit 不支持)
- */
-const checkSyntaxHighlightSupport = (() => {
-  let cachedResult: boolean | null = null;
-
-  return (): boolean => {
-    if (cachedResult !== null) {
-      return cachedResult;
-    }
-
-    try {
-      // 测试 lookbehind assertions 支持
-      new RegExp('(?<=test)');
-      cachedResult = true;
-    } catch {
-      cachedResult = false;
-    }
-
-    return cachedResult;
-  };
-})();
 
 /**
  * 纯文本代码块 Fallback 组件（提取重复代码）
