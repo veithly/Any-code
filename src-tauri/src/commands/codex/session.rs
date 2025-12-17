@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 // Import platform-specific utilities for window hiding
 use crate::claude_binary::detect_binary_for_tool;
 use crate::commands::claude::apply_no_window_async;
+use crate::process::JobObject;
 // Import WSL utilities for Windows + WSL Codex support
 use super::super::wsl_utils;
 // Import config module for sessions directory
@@ -127,6 +128,8 @@ pub struct CodexSession {
 pub struct CodexProcessHandle {
     pub child: Child,
     pub pid: u32,
+    /// Windows Job Object (kills all child processes when dropped); no-op on non-Windows.
+    pub job_object: Option<JobObject>,
 }
 
 /// Global state to track Codex processes
@@ -822,6 +825,29 @@ async fn execute_codex_process(
         .ok_or("Failed to get process ID - process may have already exited")?;
     log::info!("[Codex] Spawned process with PID: {}", pid);
 
+    // Windows robustness: assign the process to a Job Object so *all* descendants are cleaned up
+    // even if Codex/MCP spawns detached node.exe processes.
+    #[cfg(windows)]
+    let job_object = match JobObject::create() {
+        Ok(job) => match job.assign_process_by_pid(pid) {
+            Ok(_) => {
+                log::info!("[Codex] Assigned PID {} to Job Object for cleanup", pid);
+                Some(job)
+            }
+            Err(e) => {
+                log::warn!("[Codex] Failed to assign PID {} to Job Object: {}", pid, e);
+                None
+            }
+        },
+        Err(e) => {
+            log::warn!("[Codex] Failed to create Job Object: {}", e);
+            None
+        }
+    };
+
+    #[cfg(not(windows))]
+    let job_object: Option<JobObject> = None;
+
     // FIX: Write prompt to stdin if provided
     // This avoids command line length limits and special character issues
     if let Some(prompt_text) = prompt {
@@ -832,6 +858,7 @@ async fn execute_codex_process(
 
             if let Err(e) = stdin.write_all(prompt_text.as_bytes()).await {
                 log::error!("Failed to write prompt to stdin: {}", e);
+                let _ = child.kill().await;
                 return Err(format!("Failed to write prompt to stdin: {}", e));
             }
 
@@ -840,6 +867,7 @@ async fn execute_codex_process(
             log::debug!("Stdin closed successfully");
         } else {
             log::error!("Failed to get stdin handle");
+            let _ = child.kill().await;
             return Err("Failed to get stdin handle".to_string());
         }
     }
@@ -855,7 +883,11 @@ async fn execute_codex_process(
     let state: tauri::State<'_, CodexProcessState> = app_handle.state();
     {
         let mut processes = state.processes.lock().await;
-        let handle = CodexProcessHandle { child, pid };
+        let handle = CodexProcessHandle {
+            child,
+            pid,
+            job_object,
+        };
         processes.insert(session_id.clone(), handle);
 
         let mut last_session = state.last_session_id.lock().await;
@@ -882,13 +914,14 @@ async fn execute_codex_process(
     log::info!("Codex session initialized with ID: {}", session_id);
 
     // 🔧 FIX: Use channels to track stdout/stderr closure for timeout detection
-    let (stdout_done_tx, stdout_done_rx) = tokio::sync::oneshot::channel();
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
     let (stderr_done_tx, _stderr_done_rx) = tokio::sync::oneshot::channel();
 
     // Spawn task to read stdout (JSONL events)
     // FIX: Emit to both session-specific and global channels for proper multi-tab isolation
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
+        let mut done_tx = Some(done_tx);
         while let Ok(Some(line)) = reader.next_line().await {
             if !line.trim().is_empty() {
                 // Use trace level to avoid flooding logs in debug mode
@@ -903,11 +936,36 @@ async fn execute_codex_process(
                 if let Err(e) = app_handle_stdout.emit("codex-output", &line) {
                     log::error!("Failed to emit codex-output (global): {}", e);
                 }
+
+                // Detect turn completion to trigger backend cleanup even if stdout never closes.
+                if done_tx.is_some() {
+                    let is_done_event = serde_json::from_str::<serde_json::Value>(&line)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("type")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string())
+                        })
+                        .map(|t| matches!(t.as_str(), "turn.completed" | "turn.failed" | "error"))
+                        .unwrap_or(false);
+
+                    if is_done_event {
+                        log::info!(
+                            "[Codex] Detected completion event on stdout for session: {}",
+                            session_id_stdout
+                        );
+                        if let Some(tx) = done_tx.take() {
+                            let _ = tx.send(());
+                        }
+                    }
+                }
             }
         }
         log::info!("[Codex] Stdout closed for session: {}", session_id_stdout);
-        // Signal that stdout is done (ignore send error if receiver dropped)
-        let _ = stdout_done_tx.send(());
+        // Fallback: stdout closed, treat as completion if not already signaled.
+        if let Some(tx) = done_tx.take() {
+            let _ = tx.send(());
+        }
     });
 
     // Spawn task to read stderr (log errors, suppress debug output)
@@ -934,8 +992,8 @@ async fn execute_codex_process(
         let state: tauri::State<'_, CodexProcessState> = app_handle_complete.state();
 
         // Only wait for stdout to close (stderr can continue logging)
-        let _ = stdout_done_rx.await;
-        log::info!("[Codex] Stdout closed for session: {}", session_id_complete);
+        let _ = done_rx.await;
+        log::info!("[Codex] Completion signaled for session: {}", session_id_complete);
 
         // 🔧 CRITICAL FIX: Emit completion event immediately after stdout closes
         // Don't wait for process exit or stderr - those can take a long time
@@ -955,7 +1013,9 @@ async fn execute_codex_process(
 
         // Continue waiting for process exit in background (with timeout protection)
         // This ensures proper cleanup but doesn't block the completion event
-        let timeout_duration = tokio::time::Duration::from_secs(30);
+        // After turn completion, Codex should exit promptly; keep a short grace window to
+        // let it flush session files, then force-kill to prevent orphan node.exe accumulation.
+        let timeout_duration = tokio::time::Duration::from_secs(3);
         let start_time = tokio::time::Instant::now();
 
         loop {
@@ -972,21 +1032,47 @@ async fn execute_codex_process(
                         // Check timeout
                         if start_time.elapsed() > timeout_duration {
                             log::warn!(
-                                "[Codex] Process {} (PID: {}) did not exit within {}s after stdout closed, force killing process tree",
+                                "[Codex] Process {} (PID: {}) did not exit within {}s after completion, force killing process tree",
                                 session_id_complete,
                                 pid_for_cleanup,
                                 timeout_duration.as_secs()
                             );
 
                             // 🔧 FIX: Kill entire process tree to prevent orphan child processes
-                            if let Err(e) = kill_process_tree(pid_for_cleanup) {
-                                log::error!("[Codex] Failed to kill process tree: {}", e);
-                                // Fallback: try to kill main process directly
-                                if let Err(e2) = handle.child.kill().await {
-                                    log::error!("[Codex] Fallback kill also failed: {}", e2);
+                            // Prefer Job Object termination (Windows) to ensure detached descendants are killed.
+                            let mut terminated_via_job = false;
+                            if let Some(job) = handle.job_object.as_ref() {
+                                match job.terminate_all(1) {
+                                    Ok(_) => {
+                                        terminated_via_job = true;
+                                        log::info!(
+                                            "[Codex] Terminated Job Object for PID: {}",
+                                            pid_for_cleanup
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
+                                            "[Codex] Failed to terminate Job Object for PID {}: {}",
+                                            pid_for_cleanup,
+                                            e
+                                        );
+                                    }
                                 }
-                            } else {
-                                log::info!("[Codex] Successfully killed process tree for PID: {}", pid_for_cleanup);
+                            }
+
+                            if !terminated_via_job {
+                                if let Err(e) = kill_process_tree(pid_for_cleanup) {
+                                    log::error!("[Codex] Failed to kill process tree: {}", e);
+                                    // Fallback: try to kill main process directly
+                                    if let Err(e2) = handle.child.kill().await {
+                                        log::error!("[Codex] Fallback kill also failed: {}", e2);
+                                    }
+                                } else {
+                                    log::info!(
+                                        "[Codex] Successfully killed process tree for PID: {}",
+                                        pid_for_cleanup
+                                    );
+                                }
                             }
                             processes.remove(&session_id_complete);
                             break;
