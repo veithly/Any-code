@@ -99,38 +99,80 @@ function extractCurrentUsage(messages: ClaudeStreamMessage[], engine?: string): 
   return null;
 }
 
+/**
+ * 提取 Codex 引擎的当前上下文窗口使用量
+ *
+ * 数据来源优先级：
+ * 1. codexMetadata.usage - 累计值（token_count / thread_token_usage_updated 事件）
+ * 2. 累加所有带 usage 的消息（实时对话 fallback）
+ *
+ * 注意：Codex 实时对话中，turn.completed 事件产生的 usage 是增量值，
+ * 需要累加；而历史加载的 token_count 事件的 codexMetadata.usage 是累计值。
+ */
 function extractCodexCumulativeUsage(messages: ClaudeStreamMessage[]): {
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
 } | null {
+  // 第一遍：从后向前遍历，找到最后一条带有累计 usage 的消息（codexMetadata.usage）
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as any;
+
+    // 从 codexMetadata.usage 获取累计值（token_count / thread_token_usage_updated 事件）
+    const cumulativeUsage = msg?.codexMetadata?.usage;
+    if (cumulativeUsage && typeof cumulativeUsage === 'object') {
+      const normalized = normalizeUsageForIndicator(cumulativeUsage);
+      if (
+        normalized.inputTokens > 0 ||
+        normalized.outputTokens > 0 ||
+        normalized.cacheCreationTokens > 0 ||
+        normalized.cacheReadTokens > 0
+      ) {
+        return normalized;
+      }
+    }
+  }
+
+  // 第二遍 Fallback：累加所有带 usage 的消息（增量值）
+  // 跳过 thread_token_usage_updated（其 usage 是累计值，不应累加）
+  // 注意：token_count 的 msg.usage 是增量值，应该被累加
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheCreationTokens = 0;
   let cacheReadTokens = 0;
+  let foundAny = false;
 
   for (const msg of messages as any[]) {
-    // Skip known cumulative-total events (not per-call deltas)
+    // 跳过 thread_token_usage_updated（其 usage 是累计值，不应累加）
     if (msg?.codexMetadata?.codexItemType === 'thread_token_usage_updated') {
       continue;
     }
 
-    const rawUsage = getUsageCandidate(msg, 'codex');
-    if (!rawUsage) continue;
-
-    const normalized = normalizeUsageForIndicator(rawUsage);
-    inputTokens += normalized.inputTokens;
-    outputTokens += normalized.outputTokens;
-    cacheCreationTokens += normalized.cacheCreationTokens;
-    cacheReadTokens += normalized.cacheReadTokens;
+    // 处理有 usage 的消息（turn.completed、token_count 等的增量值）
+    const rawUsage = msg.usage;
+    if (rawUsage && typeof rawUsage === 'object') {
+      const normalized = normalizeUsageForIndicator(rawUsage);
+      if (
+        normalized.inputTokens > 0 ||
+        normalized.outputTokens > 0 ||
+        normalized.cacheCreationTokens > 0 ||
+        normalized.cacheReadTokens > 0
+      ) {
+        inputTokens += normalized.inputTokens;
+        outputTokens += normalized.outputTokens;
+        cacheCreationTokens += normalized.cacheCreationTokens;
+        cacheReadTokens += normalized.cacheReadTokens;
+        foundAny = true;
+      }
+    }
   }
 
-  if (inputTokens === 0 && outputTokens === 0 && cacheCreationTokens === 0 && cacheReadTokens === 0) {
-    return null;
+  if (foundAny) {
+    return { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens };
   }
 
-  return { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens };
+  return null;
 }
 
 /**
@@ -237,7 +279,8 @@ export function useContextWindowUsage(
       formattedPercentage,
       formattedTokens,
     };
-  }, [messages, model, engine]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, messages.length, model, engine]);
 }
 
 /**

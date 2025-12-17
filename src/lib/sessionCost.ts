@@ -57,9 +57,23 @@ export function aggregateSessionCost(messages: ClaudeStreamMessage[]): SessionCo
 
   messages.forEach((message, index) => {
     // Claude: 只处理 assistant 消息
-    // Codex: 处理 assistant 消息和包含 usage 数据的 system 消息
+    // Codex: 只处理 token_count 事件的 system 消息（增量 usage）
     const isAssistant = message.type === 'assistant';
     const isCodexUsageMessage = message.type === 'system' && (message as any).usage;
+    const engine = getEngineType(message);
+
+    // 对于 Codex 引擎，需要特殊处理以避免重复计算：
+    // - thread_token_usage_updated (assistant 类型): 累计值，跳过（不应累加）
+    // - turn.completed (system 类型，无 codexMetadata): 单次 turn 增量，允许（实时对话）
+    // - token_count (system 类型，有 codexMetadata.codexItemType): 增量值，允许（历史加载）
+    if (engine === 'codex') {
+      const codexItemType = (message as any).codexMetadata?.codexItemType;
+
+      // 跳过 thread_token_usage_updated（累计值，不应累加到费用统计）
+      if (codexItemType === 'thread_token_usage_updated') {
+        return;
+      }
+    }
 
     if (!isAssistant && !isCodexUsageMessage) {
       return;
@@ -74,7 +88,6 @@ export function aggregateSessionCost(messages: ClaudeStreamMessage[]): SessionCo
 
     const key = getBillingKey(message, index);
     const { timestamp, timestampMs } = extractTimestamp(message);
-    const engine = getEngineType(message);
     const model = getModelName(message, engine);
     const cost = calculateMessageCost(tokens, model, engine);
 
