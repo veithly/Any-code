@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Settings, Zap, Check, Monitor, Terminal, Sparkles } from 'lucide-react';
+import { Settings, Zap, Check, Monitor, Terminal, Sparkles, Brain, Star, Cpu, Rocket, FlaskConical, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -17,12 +17,101 @@ import {
 } from '@/components/ui/select';
 import { Popover } from '@/components/ui/popover';
 import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { relaunchApp } from '@/lib/updater';
 import { ask, message } from '@tauri-apps/plugin-dialog';
 import { useEngineStatus } from '@/hooks/useEngineStatus';
 import type { CodexExecutionMode } from '@/types/codex';
+import { cn } from '@/lib/utils';
+
+// ============================================================================
+// Model Definitions
+// ============================================================================
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  isDefault?: boolean;
+}
+
+/**
+ * Codex models (GPT-5.1 series, GPT-5.1-Codex series, GPT-5.2 series)
+ * Updated: December 2025
+ */
+export const CODEX_MODELS: ModelInfo[] = [
+  {
+    id: 'gpt-5.2-pro',
+    name: 'GPT-5.2 Pro',
+    description: '最强推理模型，适合复杂任务',
+    icon: <Sparkles className="h-4 w-4 text-purple-500" />,
+    isDefault: false,
+  },
+  {
+    id: 'gpt-5.2',
+    name: 'GPT-5.2',
+    description: '最新旗舰模型（2025年12月）',
+    icon: <Star className="h-4 w-4 text-yellow-500" />,
+    isDefault: true,
+  },
+  {
+    id: 'gpt-5.1-codex-max',
+    name: 'GPT-5.1 Codex Max',
+    description: '代码编写优化，速度与质量平衡',
+    icon: <Rocket className="h-4 w-4 text-green-500" />,
+    isDefault: false,
+  },
+  {
+    id: 'gpt-5.1-codex',
+    name: 'GPT-5.1 Codex',
+    description: '专注代码生成的基础版本',
+    icon: <Cpu className="h-4 w-4 text-blue-500" />,
+    isDefault: false,
+  },
+  {
+    id: 'gpt-5.1',
+    name: 'GPT-5.1',
+    description: '通用大语言模型',
+    icon: <Brain className="h-4 w-4 text-orange-500" />,
+    isDefault: false,
+  },
+];
+
+/**
+ * Gemini models (Gemini 3 series only)
+ * Updated: December 2025
+ */
+export const GEMINI_MODELS: ModelInfo[] = [
+  {
+    id: 'gemini-3-flash',
+    name: 'Gemini 3 Flash',
+    description: '最新最快模型（2025年12月17日）',
+    icon: <Gauge className="h-4 w-4 text-yellow-500" />,
+    isDefault: true,
+  },
+  {
+    id: 'gemini-3-pro',
+    name: 'Gemini 3 Pro',
+    description: '最强推理和编码能力',
+    icon: <Sparkles className="h-4 w-4 text-blue-500" />,
+    isDefault: false,
+  },
+  {
+    id: 'gemini-3-pro-preview',
+    name: 'Gemini 3 Pro (Preview)',
+    description: '实验性预览版本',
+    icon: <FlaskConical className="h-4 w-4 text-purple-500" />,
+    isDefault: false,
+  },
+  {
+    id: 'gemini-3-flash-thinking',
+    name: 'Gemini 3 Flash Thinking',
+    description: '带思考链的快速模型',
+    icon: <Brain className="h-4 w-4 text-green-500" />,
+    isDefault: false,
+  },
+];
 
 // ============================================================================
 // Type Definitions
@@ -411,15 +500,44 @@ export const ExecutionEngineSelector: React.FC<ExecutionEngineSelectorProps> = (
                 </Select>
               </div>
 
-              {/* Model */}
+              {/* Model - Claude-style Selector */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">模型</Label>
-                <Input
-                  value={value.codexModel || 'gpt-5.1-codex-max'}
-                  onChange={(e) => handleCodexModelChange(e.target.value)}
-                  placeholder="gpt-5.1-codex-max"
-                  className="font-mono text-sm"
-                />
+                <div className="space-y-1">
+                  {CODEX_MODELS.map((model) => {
+                    const isSelected = value.codexModel === model.id ||
+                      (!value.codexModel && model.isDefault);
+                    return (
+                      <button
+                        key={model.id}
+                        onClick={() => handleCodexModelChange(model.id)}
+                        className={cn(
+                          "w-full flex items-start gap-3 p-2.5 rounded-md transition-colors text-left group",
+                          "hover:bg-accent border border-transparent",
+                          isSelected && "bg-accent border-primary/20"
+                        )}
+                      >
+                        <div className="mt-0.5 shrink-0">{model.icon}</div>
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <div className="font-medium text-sm flex items-center gap-2">
+                            <span className="truncate">{model.name}</span>
+                            {isSelected && (
+                              <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                            )}
+                            {model.isDefault && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
+                                推荐
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {model.description}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Status */}
@@ -537,80 +655,43 @@ export const ExecutionEngineSelector: React.FC<ExecutionEngineSelectorProps> = (
             <>
               <div className="h-px bg-border" />
 
-              {/* Model Selection */}
+              {/* Model Selection - Claude-style Selector */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">模型</Label>
-                <div className="space-y-2">
-                  {/* Preset model selector */}
-                  <Select
-                    value={
-                      ['gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash-exp'].includes(value.geminiModel || '')
-                        ? value.geminiModel
-                        : '__custom__'
-                    }
-                    onValueChange={(val) => {
-                      if (val === '__custom__') {
-                        // Switch to custom input mode
-                        onChange({
-                          ...value,
-                          geminiModel: '',
-                        });
-                      } else {
-                        handleGeminiModelChange(val);
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="gemini-3-pro-preview">
-                        <div>
-                          <div className="font-medium">Gemini 3 Pro (Preview)</div>
-                          <div className="text-xs text-muted-foreground">最新实验模型</div>
+                <div className="space-y-1">
+                  {GEMINI_MODELS.map((model) => {
+                    const isSelected = value.geminiModel === model.id ||
+                      (!value.geminiModel && model.isDefault);
+                    return (
+                      <button
+                        key={model.id}
+                        onClick={() => handleGeminiModelChange(model.id)}
+                        className={cn(
+                          "w-full flex items-start gap-3 p-2.5 rounded-md transition-colors text-left group",
+                          "hover:bg-accent border border-transparent",
+                          isSelected && "bg-accent border-primary/20"
+                        )}
+                      >
+                        <div className="mt-0.5 shrink-0">{model.icon}</div>
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <div className="font-medium text-sm flex items-center gap-2">
+                            <span className="truncate">{model.name}</span>
+                            {isSelected && (
+                              <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                            )}
+                            {model.isDefault && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
+                                推荐
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {model.description}
+                          </div>
                         </div>
-                      </SelectItem>
-                      <SelectItem value="gemini-2.5-pro">
-                        <div>
-                          <div className="font-medium">Gemini 2.5 Pro</div>
-                          <div className="text-xs text-muted-foreground">稳定版，1M 上下文</div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="gemini-2.5-flash">
-                        <div>
-                          <div className="font-medium">Gemini 2.5 Flash</div>
-                          <div className="text-xs text-muted-foreground">快速高效</div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="gemini-2.0-flash-exp">
-                        <div>
-                          <div className="font-medium">Gemini 2.0 Flash (实验)</div>
-                          <div className="text-xs text-muted-foreground">实验性版本</div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="__custom__">
-                        <div>
-                          <div className="font-medium">✏️ 自定义模型</div>
-                          <div className="text-xs text-muted-foreground">手动输入模型名称</div>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* Custom model input (always visible for transparency) */}
-                  {!['gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash-exp'].includes(value.geminiModel || '') && (
-                    <div>
-                      <Input
-                        placeholder="输入自定义模型名称"
-                        value={value.geminiModel || ''}
-                        onChange={(e) => handleGeminiModelChange(e.target.value)}
-                        className="text-sm font-mono"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        💡 查看可用模型: <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">Gemini 文档</a>
-                      </p>
-                    </div>
-                  )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

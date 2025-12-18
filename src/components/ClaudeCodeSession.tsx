@@ -138,7 +138,8 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
     return {
       engine: 'claude',
       codexMode: 'read-only',
-      codexModel: 'gpt-5.1-codex-max',
+      codexModel: 'gpt-5.2',
+      geminiModel: 'gemini-3-flash',
     };
   });
 

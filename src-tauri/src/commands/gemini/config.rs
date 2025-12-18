@@ -64,7 +64,7 @@ pub struct GeminiConfig {
 }
 
 fn default_model() -> String {
-    "gemini-2.5-pro".to_string()
+    "gemini-3-flash".to_string()
 }
 
 fn default_approval_mode() -> String {
@@ -151,35 +151,36 @@ pub async fn update_gemini_config(config: GeminiConfig) -> Result<(), String> {
     save_gemini_config(&config)
 }
 
-/// Get available Gemini models
+/// Get available Gemini models (Gemini 3 series only)
+/// Updated: December 2025
 #[tauri::command]
 pub async fn get_gemini_models() -> Result<Vec<GeminiModelInfo>, String> {
     Ok(vec![
         GeminiModelInfo {
-            id: "gemini-3-pro-preview".to_string(),
-            name: "Gemini 3 Pro (Preview)".to_string(),
-            description: "Latest experimental Gemini 3 model".to_string(),
+            id: "gemini-3-flash".to_string(),
+            name: "Gemini 3 Flash".to_string(),
+            description: "Latest and fastest model (December 17, 2025)".to_string(),
             context_window: 1_000_000,
             is_default: true,
         },
         GeminiModelInfo {
-            id: "gemini-2.5-pro".to_string(),
-            name: "Gemini 2.5 Pro".to_string(),
-            description: "Most capable stable model with 1M context".to_string(),
+            id: "gemini-3-pro".to_string(),
+            name: "Gemini 3 Pro".to_string(),
+            description: "Most capable reasoning and coding model".to_string(),
             context_window: 1_000_000,
             is_default: false,
         },
         GeminiModelInfo {
-            id: "gemini-2.5-flash".to_string(),
-            name: "Gemini 2.5 Flash".to_string(),
-            description: "Fast and efficient".to_string(),
+            id: "gemini-3-pro-preview".to_string(),
+            name: "Gemini 3 Pro (Preview)".to_string(),
+            description: "Experimental preview version".to_string(),
             context_window: 1_000_000,
             is_default: false,
         },
         GeminiModelInfo {
-            id: "gemini-2.0-flash-exp".to_string(),
-            name: "Gemini 2.0 Flash (Experimental)".to_string(),
-            description: "Experimental flash model".to_string(),
+            id: "gemini-3-flash-thinking".to_string(),
+            name: "Gemini 3 Flash Thinking".to_string(),
+            description: "Flash model with chain-of-thought reasoning".to_string(),
             context_window: 1_000_000,
             is_default: false,
         },

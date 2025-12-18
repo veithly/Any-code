@@ -172,34 +172,35 @@ export function isGeminiMessage(msg: unknown): msg is GeminiUnifiedMessage {
 }
 
 /**
- * Available Gemini models
+ * Available Gemini models (Gemini 3 series only)
+ * Updated: December 2025
  */
 export const GEMINI_MODELS: GeminiModelInfo[] = [
   {
-    id: "gemini-3-pro-preview",
-    name: "Gemini 3 Pro (Preview)",
-    description: "Latest experimental Gemini 3 model",
+    id: "gemini-3-flash",
+    name: "Gemini 3 Flash",
+    description: "Latest and fastest model (December 17, 2025)",
     contextWindow: 1_000_000,
     isDefault: true,
   },
   {
-    id: "gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
-    description: "Most capable stable model with 1M context",
+    id: "gemini-3-pro",
+    name: "Gemini 3 Pro",
+    description: "Most capable reasoning and coding model",
     contextWindow: 1_000_000,
     isDefault: false,
   },
   {
-    id: "gemini-2.5-flash",
-    name: "Gemini 2.5 Flash",
-    description: "Fast and efficient",
+    id: "gemini-3-pro-preview",
+    name: "Gemini 3 Pro (Preview)",
+    description: "Experimental preview version",
     contextWindow: 1_000_000,
     isDefault: false,
   },
   {
-    id: "gemini-2.0-flash-exp",
-    name: "Gemini 2.0 Flash (Experimental)",
-    description: "Experimental flash model",
+    id: "gemini-3-flash-thinking",
+    name: "Gemini 3 Flash Thinking",
+    description: "Flash model with chain-of-thought reasoning",
     contextWindow: 1_000_000,
     isDefault: false,
   },
@@ -210,7 +211,7 @@ export const GEMINI_MODELS: GeminiModelInfo[] = [
  */
 export const DEFAULT_GEMINI_CONFIG: GeminiConfig = {
   authMethod: "google_oauth",
-  defaultModel: "gemini-2.5-pro",
+  defaultModel: "gemini-3-flash",
   approvalMode: "auto_edit",
 };
 
