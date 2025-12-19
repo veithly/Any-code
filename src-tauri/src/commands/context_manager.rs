@@ -7,7 +7,28 @@ use std::collections::HashMap;
 /// based on Claude Code SDK best practices and the official documentation.
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use tauri::Emitter;
 use tokio::time::sleep;
+
+/// Event payload for compaction status changes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionEvent {
+    pub session_id: String,
+    pub event_type: CompactionEventType,
+    pub progress: Option<u8>,  // 0-100
+    pub message: Option<String>,
+    pub tokens_before: Option<usize>,
+    pub tokens_after: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionEventType {
+    Started,
+    InProgress,
+    Completed,
+    Failed,
+}
 
 /// Configuration for auto-compact behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,7 +227,7 @@ impl AutoCompactManager {
     ) -> Result<(), String> {
         info!("Executing auto-compaction for session {}", session_id);
 
-        let (project_path, custom_instructions) = {
+        let (project_path, custom_instructions, tokens_before) = {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
             let config = self.config.lock().map_err(|e| e.to_string())?;
 
@@ -217,11 +238,32 @@ impl AutoCompactManager {
             (
                 session.project_path.clone(),
                 config.custom_instructions.clone(),
+                session.current_tokens,
             )
         };
 
+        // Emit compaction started event
+        let _ = app.emit("auto-compact-event", CompactionEvent {
+            session_id: session_id.to_string(),
+            event_type: CompactionEventType::Started,
+            progress: Some(0),
+            message: Some("正在优化上下文...".to_string()),
+            tokens_before: Some(tokens_before),
+            tokens_after: None,
+        });
+
         // Build compaction command based on strategy
         let compaction_cmd = self.build_compaction_command(&custom_instructions).await?;
+
+        // Emit in-progress event
+        let _ = app.emit("auto-compact-event", CompactionEvent {
+            session_id: session_id.to_string(),
+            event_type: CompactionEventType::InProgress,
+            progress: Some(50),
+            message: Some("正在压缩会话历史...".to_string()),
+            tokens_before: Some(tokens_before),
+            tokens_after: None,
+        });
 
         // Execute compaction using Claude CLI
         match self
@@ -231,7 +273,7 @@ impl AutoCompactManager {
             Ok(_) => {
                 // Update session state after successful compaction
                 let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-                if let Some(session) = sessions.get_mut(session_id) {
+                let tokens_after = if let Some(session) = sessions.get_mut(session_id) {
                     session.last_compaction = Some(SystemTime::now());
                     session.compaction_count += 1;
                     session.status = SessionStatus::Active;
@@ -241,7 +283,21 @@ impl AutoCompactManager {
                         "Auto-compaction completed for session {}: compaction #{}, estimated tokens: {}",
                         session_id, session.compaction_count, session.current_tokens
                     );
-                }
+                    session.current_tokens
+                } else {
+                    tokens_before / 3
+                };
+
+                // Emit compaction completed event
+                let _ = app.emit("auto-compact-event", CompactionEvent {
+                    session_id: session_id.to_string(),
+                    event_type: CompactionEventType::Completed,
+                    progress: Some(100),
+                    message: Some("上下文优化完成".to_string()),
+                    tokens_before: Some(tokens_before),
+                    tokens_after: Some(tokens_after),
+                });
+
                 Ok(())
             }
             Err(e) => {
@@ -251,6 +307,17 @@ impl AutoCompactManager {
                     session.status = SessionStatus::CompactionFailed(e.clone());
                 }
                 error!("Auto-compaction failed for session {}: {}", session_id, e);
+
+                // Emit compaction failed event
+                let _ = app.emit("auto-compact-event", CompactionEvent {
+                    session_id: session_id.to_string(),
+                    event_type: CompactionEventType::Failed,
+                    progress: Some(0),
+                    message: Some(format!("压缩失败: {}", e)),
+                    tokens_before: Some(tokens_before),
+                    tokens_after: None,
+                });
+
                 Err(e)
             }
         }
