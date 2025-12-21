@@ -168,6 +168,23 @@ fn get_git_record(
     Ok(records.get(&prompt_index).cloned())
 }
 
+fn build_prompt_commit_message(
+    prefix: &str,
+    prompt_text: Option<&str>,
+    prompt_index: usize,
+) -> String {
+    let prompt_text = prompt_text.unwrap_or("");
+    let sanitized = prompt_text.replace('\n', " ").replace('\r', " ");
+    let sanitized = sanitized.trim();
+    let truncated: String = sanitized.chars().take(80).collect();
+
+    if truncated.is_empty() {
+        return format!("{prefix} After prompt #{prompt_index}");
+    }
+
+    format!("{prefix} {truncated} prompt #{prompt_index}")
+}
+
 /// Truncate git records (remove records for prompts after the specified index)
 fn truncate_git_records(
     session_id: &str,
@@ -580,7 +597,11 @@ pub async fn mark_prompt_completed(
 
     // Auto-commit any changes made by AI
     // This ensures each prompt has a distinct git state
-    let commit_message = format!("[Claude Code] After prompt #{}", prompt_index);
+    let prompt_text = extract_prompts_from_jsonl(&session_id, &project_id)
+        .ok()
+        .and_then(|prompts| prompts.get(prompt_index).map(|prompt| prompt.text.clone()));
+    let commit_message =
+        build_prompt_commit_message("[Claude Code]", prompt_text.as_deref(), prompt_index);
     match simple_git::git_commit_changes(&project_path, &commit_message) {
         Ok(true) => {
             log::info!("Auto-committed changes after prompt #{}", prompt_index);

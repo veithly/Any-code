@@ -303,6 +303,23 @@ pub async fn get_gemini_prompt_list(
     extract_gemini_prompts(&session_id, &project_path)
 }
 
+fn build_prompt_commit_message(
+    prefix: &str,
+    prompt_text: Option<&str>,
+    prompt_index: usize,
+) -> String {
+    let prompt_text = prompt_text.unwrap_or("");
+    let sanitized = prompt_text.replace('\n', " ").replace('\r', " ");
+    let sanitized = sanitized.trim();
+    let truncated: String = sanitized.chars().take(80).collect();
+
+    if truncated.is_empty() {
+        return format!("{prefix} After prompt #{prompt_index}");
+    }
+
+    format!("{prefix} {truncated} prompt #{prompt_index}")
+}
+
 // ============================================================================
 // Rewind Capabilities
 // ============================================================================
@@ -481,7 +498,11 @@ pub async fn record_gemini_prompt_completed(
     }
 
     // Auto-commit any changes made by AI
-    let commit_message = format!("[Gemini] After prompt #{}", prompt_index);
+    let prompt_text = extract_gemini_prompts(&session_id, &project_path)
+        .ok()
+        .and_then(|prompts| prompts.get(prompt_index).map(|prompt| prompt.text.clone()));
+    let commit_message =
+        build_prompt_commit_message("[Gemini]", prompt_text.as_deref(), prompt_index);
     match simple_git::git_commit_changes(&project_path, &commit_message) {
         Ok(true) => {
             log::info!(

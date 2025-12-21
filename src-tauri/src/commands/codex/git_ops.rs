@@ -250,6 +250,23 @@ pub async fn get_codex_prompt_list(session_id: String) -> Result<Vec<PromptRecor
     extract_codex_prompts(&session_id)
 }
 
+fn build_prompt_commit_message(
+    prefix: &str,
+    prompt_text: Option<&str>,
+    prompt_index: usize,
+) -> String {
+    let prompt_text = prompt_text.unwrap_or("");
+    let sanitized = prompt_text.replace('\n', " ").replace('\r', " ");
+    let sanitized = sanitized.trim();
+    let truncated: String = sanitized.chars().take(80).collect();
+
+    if truncated.is_empty() {
+        return format!("{prefix} After prompt #{prompt_index}");
+    }
+
+    format!("{prefix} {truncated} prompt #{prompt_index}")
+}
+
 // ============================================================================
 // Rewind Capabilities
 // ============================================================================
@@ -564,7 +581,10 @@ pub async fn record_codex_prompt_completed(
     }
 
     // Auto-commit any changes made by AI
-    let commit_message = format!("[Codex] After prompt #{}", prompt_index);
+    let prompt_text = extract_codex_prompts(&session_id)
+        .ok()
+        .and_then(|prompts| prompts.get(prompt_index).map(|prompt| prompt.text.clone()));
+    let commit_message = build_prompt_commit_message("[Codex]", prompt_text.as_deref(), prompt_index);
     match simple_git::git_commit_changes(&project_path, &commit_message) {
         Ok(true) => {
             log::info!(
