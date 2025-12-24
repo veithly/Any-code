@@ -128,11 +128,11 @@ fn pick_section(cfg: &BinarySearchConfig, key: &str) -> Option<BinarySearchSecti
     }
 }
 
-/// Initialize shell environment for macOS GUI applications
+/// Initialize shell environment for Unix GUI applications (macOS and Linux)
 /// This function should be called at application startup to ensure
-/// CLI tools installed via homebrew, npm, nvm, etc. can be found
+/// CLI tools installed via package managers, npm, nvm, etc. can be found
 ///
-/// On macOS, GUI applications launched from Finder/Dock don't inherit
+/// On both macOS and Linux, GUI applications launched from desktop don't inherit
 /// the user's shell environment (PATH, etc.). This function runs the
 /// user's default shell to get the actual PATH and sets it in the
 /// process environment.
@@ -140,9 +140,9 @@ fn pick_section(cfg: &BinarySearchConfig, key: &str) -> Option<BinarySearchSecti
 /// Key fix: Always merge NVM paths regardless of shell command success,
 /// because `zsh -l -c` (login + non-interactive) doesn't read .zshrc
 /// where NVM initialization typically lives.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub fn init_shell_environment() {
-    info!("Initializing shell environment for macOS GUI application...");
+    info!("Initializing shell environment for GUI application...");
 
     let current_path = std::env::var("PATH").unwrap_or_default();
     debug!("Current PATH before init: {}", current_path);
@@ -206,15 +206,15 @@ pub fn init_shell_environment() {
     }
 }
 
-/// No-op for non-macOS platforms
-#[cfg(not(target_os = "macos"))]
+/// No-op for non-Unix platforms (Windows)
+#[cfg(not(unix))]
 pub fn init_shell_environment() {
     debug!("Shell environment initialization not needed on this platform");
 }
 
 /// Get NVM paths - scans ~/.nvm/versions/node for all installed versions
 /// Returns paths sorted by version (newest first) for highest priority
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn get_nvm_paths(home: &str) -> Vec<String> {
     let mut nvm_paths = Vec::new();
     let nvm_versions_dir = format!("{}/.nvm/versions/node", home);
@@ -254,14 +254,12 @@ fn get_nvm_paths(home: &str) -> Vec<String> {
     nvm_paths
 }
 
-/// Get fallback paths for common CLI tool locations
-#[cfg(target_os = "macos")]
+/// Get fallback paths for common CLI tool locations (macOS and Linux)
+#[cfg(unix)]
 fn get_fallback_paths(home: &str) -> Vec<String> {
-    let candidates = vec![
-        // Homebrew paths (Apple Silicon first, then Intel)
-        "/opt/homebrew/bin".to_string(),
+    let mut candidates = vec![
+        // System paths (common to both macOS and Linux)
         "/usr/local/bin".to_string(),
-        // System paths
         "/usr/bin".to_string(),
         "/bin".to_string(),
         "/usr/sbin".to_string(),
@@ -283,7 +281,6 @@ fn get_fallback_paths(home: &str) -> Vec<String> {
         // n (Node version manager)
         format!("{}/.n/bin", home),
         // pnpm
-        format!("{}/Library/pnpm", home),
         format!("{}/.local/share/pnpm", home),
         format!("{}/.pnpm-global/bin", home),
         // yarn
@@ -291,7 +288,24 @@ fn get_fallback_paths(home: &str) -> Vec<String> {
         format!("{}/.config/yarn/global/node_modules/.bin", home),
         // bun
         format!("{}/.bun/bin", home),
+        // cargo (Rust tools)
+        format!("{}/.cargo/bin", home),
     ];
+
+    // macOS-specific: Homebrew paths
+    #[cfg(target_os = "macos")]
+    {
+        candidates.insert(0, "/opt/homebrew/bin".to_string()); // Apple Silicon
+        candidates.push(format!("{}/Library/pnpm", home)); // macOS pnpm location
+    }
+
+    // Linux-specific: Snap and Flatpak paths
+    #[cfg(target_os = "linux")]
+    {
+        candidates.push("/snap/bin".to_string());
+        candidates.push(format!("{}/.local/share/flatpak/exports/bin", home));
+        candidates.push("/var/lib/flatpak/exports/bin".to_string());
+    }
 
     // Add npm prefix from .npmrc if exists
     let mut paths: Vec<String> = Vec::new();
@@ -312,9 +326,9 @@ fn get_fallback_paths(home: &str) -> Vec<String> {
     paths
 }
 
-/// Get the shell's PATH on macOS
-/// Uses interactive mode (-i) to ensure .zshrc is read
-#[cfg(target_os = "macos")]
+/// Get the shell's PATH on Unix systems (macOS and Linux)
+/// Uses interactive mode (-i) to ensure shell rc files are read
+#[cfg(unix)]
 fn get_shell_path() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     debug!("User's default shell: {}", shell);
@@ -352,7 +366,7 @@ fn get_shell_path() -> Option<String> {
 }
 
 /// 从 ~/.npmrc 文件读取用户配置的 prefix 路径
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn read_npmrc_prefix(home: &str) -> Option<String> {
     let npmrc_path = format!("{}/.npmrc", home);
 

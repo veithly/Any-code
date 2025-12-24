@@ -64,14 +64,29 @@ export const Popover: React.FC<PopoverProps> = ({
     if (!open) return;
     
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        triggerRef.current &&
-        contentRef.current &&
-        !triggerRef.current.contains(event.target as Node) &&
-        !contentRef.current.contains(event.target as Node)
-      ) {
-        setOpen(false);
+      const target = event.target as HTMLElement;
+      
+      // Check if click is inside trigger or content
+      if (triggerRef.current?.contains(target) || contentRef.current?.contains(target)) {
+        return;
       }
+      
+      // Check if click is inside a Radix Portal (e.g., Select dropdown)
+      const radixPortal = target.closest('[data-radix-popper-content-wrapper], [data-radix-select-viewport], [role="listbox"], [data-radix-portal]');
+      if (radixPortal) {
+        return;
+      }
+      
+      // Check for radix-related attributes in parent chain
+      let element: HTMLElement | null = target;
+      while (element && element !== document.body) {
+        if (element.hasAttribute('data-radix-collection-item') || element.getAttribute('role') === 'option') {
+          return;
+        }
+        element = element.parentElement;
+      }
+      
+      setOpen(false);
     };
     
     document.addEventListener("mousedown", handleClickOutside);
