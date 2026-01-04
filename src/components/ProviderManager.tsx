@@ -228,7 +228,32 @@ export default function ProviderManager({ onBack }: ProviderManagerProps) {
 
   const isCurrentProvider = (config: ProviderConfig): boolean => {
     if (!currentConfig) return false;
-    return currentConfig.anthropic_base_url === config.base_url;
+
+    // 首先比较 base_url
+    if (currentConfig.anthropic_base_url !== config.base_url) {
+      return false;
+    }
+
+    // 然后比较认证信息（api_key 或 auth_token）
+    // 只有当 base_url 和认证信息都匹配时才认为是当前选中的代理商
+    const currentApiKey = currentConfig.anthropic_api_key;
+    const currentAuthToken = currentConfig.anthropic_auth_token;
+
+    // 如果配置有 api_key，比较 api_key
+    if (config.api_key) {
+      if (currentApiKey !== config.api_key) {
+        return false;
+      }
+    }
+
+    // 如果配置有 auth_token，比较 auth_token
+    if (config.auth_token) {
+      if (currentAuthToken !== config.auth_token) {
+        return false;
+      }
+    }
+
+    return true;
   };
 
   const maskToken = (token: string): string => {
