@@ -118,6 +118,12 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [codexRateLimits, setCodexRateLimits] = useState<CodexRateLimits | null>(null);
 
+  // 🔧 FIX: Track whether this component instance was created as a "new session" (no session prop).
+  // When true, we must NOT auto-load/resume any session even if the session prop later
+  // becomes defined (due to TabSessionWrapper memo allowing re-render on isActive change
+  // after the tab's session was upgraded via updateTabSession).
+  const wasCreatedAsNewSessionRef = useRef(!session);
+
   // Plan Mode state - 使用 Context（方案 B-1）
   const {
     isPlanMode,
@@ -246,31 +252,48 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
       isLoading
     });
 
-  // 🆕 Fix: Scroll to bottom when session history is loaded
+  // Fix: Scroll to bottom when session history is loaded
+  // Also re-trigger when message count changes significantly (e.g., streaming adds many messages)
   const hasScrolledToBottomRef = useRef<string | null>(null);
+  const lastScrolledMessageCountRef = useRef(0);
 
   useEffect(() => {
     // Check if we have messages and parentRef is attached
     if (displayableMessages.length > 0 && parentRef.current) {
       const currentSessionId = session?.id || 'new_session';
-      
-      // If we haven't scrolled for this session yet
-      if (hasScrolledToBottomRef.current !== currentSessionId) {
+      const currentCount = displayableMessages.length;
+
+      // Determine if we should scroll:
+      // 1. First time for this session (initial history load)
+      const isFirstTimeForSession = hasScrolledToBottomRef.current !== currentSessionId;
+      // 2. Message count jumped significantly (e.g., streaming added many messages at once)
+      const countDelta = currentCount - lastScrolledMessageCountRef.current;
+      const significantCountChange = lastScrolledMessageCountRef.current > 0 && countDelta >= 5;
+
+      if (isFirstTimeForSession || significantCountChange) {
         // Use a small delay to ensure virtualizer has calculated sizes
         const timer = setTimeout(() => {
           if (parentRef.current) {
             // Force scroll to bottom
             parentRef.current.scrollTop = parentRef.current.scrollHeight;
-            
+
             // Sync with smart auto-scroll state
             setUserScrolled(false);
             setShouldAutoScroll(true);
-            
+
             // Mark as done for this session
             hasScrolledToBottomRef.current = currentSessionId;
+            lastScrolledMessageCountRef.current = currentCount;
+
+            // Schedule a follow-up scroll to handle virtualizer re-measurements
+            setTimeout(() => {
+              if (parentRef.current) {
+                parentRef.current.scrollTop = parentRef.current.scrollHeight;
+              }
+            }, 200);
           }
         }, 150); // 150ms delay for stability
-        
+
         return () => clearTimeout(timer);
       }
     }
@@ -341,7 +364,10 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
     setCodexRateLimits,
     initializeProgressiveTranslation,
     processMessageWithTranslation,
-    onSessionNotFound: handleSessionNotFound
+    onSessionNotFound: handleSessionNotFound,
+    // 🔧 FIX: Pass isNewSessionInstance flag to prevent auto-loading/reconnecting
+    // when the session prop later gets upgraded (after tab session update + isActive change).
+    isNewSessionInstance: wasCreatedAsNewSessionRef.current,
   });
 
   // Keep ref in sync with state
@@ -495,6 +521,26 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
   // Load session history if resuming
   useEffect(() => {
     if (session) {
+      // 🔧 FIX: If this component was created as a new session (session prop was initially undefined),
+      // do NOT auto-load history when the session prop later becomes defined.
+      // This happens when TabSessionWrapper re-renders due to isActive change after the tab's
+      // session was upgraded via updateTabSession. The component already has the correct
+      // messages from streaming - re-loading history would overwrite them and cause the
+      // "reverting to restoring latest session" bug.
+      if (wasCreatedAsNewSessionRef.current) {
+        // Check if this session was extracted by this component instance
+        if (extractedSessionInfo && extractedSessionInfo.sessionId === session.id) {
+          console.debug('[ClaudeCodeSession] Skipping session load - session was created by this instance:', session.id);
+          return;
+        }
+        // If extractedSessionInfo doesn't match, this is a genuinely different session prop
+        // (shouldn't happen in current architecture, but handle defensively)
+        if (!extractedSessionInfo) {
+          console.debug('[ClaudeCodeSession] Skipping session load - new session instance, no extracted info yet');
+          return;
+        }
+      }
+
       // Set the claudeSessionId immediately when we have a session
       setClaudeSessionId(session.id);
 
@@ -554,14 +600,13 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
     onStreamingChange?.(isLoading, claudeSessionId);
   }, [isLoading, claudeSessionId, onStreamingChange]);
 
-  // 🔧 FIX: DO NOT clean up listeners on tab switch
-  // Listeners should persist until session completes or component unmounts
-  // This fixes the issue where:
-  // 1. User sends prompt in tab A
-  // 2. User switches to tab B before receiving session_id
-  // 3. Listeners in tab A were cleaned up, causing output loss
+  // 🔧 FIX: When a tab becomes active (visible), re-verify session running state
+  // Listeners persist across tab switches (DO NOT clean up on tab switch).
+  // But we need to:
+  // 1. Re-report the current streaming state to the parent so the tab indicator is accurate
+  // 2. Re-check if the session is still running (in case events were missed while in background)
   //
-  // The listeners will be automatically cleaned up when:
+  // Listeners are automatically cleaned up when:
   // - Session completes (in processComplete/processCodexComplete)
   // - Component unmounts (in the cleanup effect below)
   //
@@ -570,8 +615,20 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
   // - isMountedRef check in message handlers
   // - Session-specific event channels (claude-output:{session_id})
   useEffect(() => {
-    // Tab state changes are handled silently
-  }, [isActive]);
+    if (isActive && session) {
+      // Re-report the current streaming state to ensure the tab indicator is in sync.
+      // This handles the case where the state changed in the background but the
+      // parent tab manager did not receive the update.
+      onStreamingChange?.(isLoading, claudeSessionId);
+
+      // If we are not already listening to session events, re-check whether the
+      // session is still actively running. This reconnects listeners if the session
+      // is alive but we lost our connection (e.g., after app restart or missed events).
+      if (!isListeningRef.current) {
+        checkForActiveSession();
+      }
+    }
+  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ✅ Keyboard shortcuts (ESC, Shift+Tab) extracted to useKeyboardShortcuts Hook
 
@@ -919,6 +976,10 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
     </SessionProvider>
   );
 
+  // Determine if we're in "new session" mode (no session yet, showing project picker)
+  // In this mode, the page content should be scrollable as a whole
+  const isNewSessionMode = !effectiveSession && displayableMessages.length === 0;
+
   // Show project path input only when:
   // 1. No initial session prop AND
   // 2. No extracted session info (from successful first response)
@@ -964,8 +1025,12 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
       {/* Main Content Area - 重构布局：使用 Flexbox 实现消息区域与输入区域的完全分离 */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* 消息展示区域容器 - flex-1 占据剩余空间，min-h-0 防止 flex 子元素溢出 */}
+        {/* When in new session mode, allow the content to scroll so the user
+            can reach all recent projects. In active session mode, overflow is
+            hidden and the virtualised message list handles its own scrolling. */}
         <div className={cn(
-          "flex-1 min-h-0 overflow-hidden transition-all duration-300 relative"
+          "flex-1 min-h-0 transition-all duration-300 relative",
+          isNewSessionMode ? "overflow-y-auto" : "overflow-hidden"
         )}>
           {showPreview ? (
             // Split pane layout when preview is active
@@ -993,9 +1058,15 @@ const ClaudeCodeSessionInner: React.FC<ClaudeCodeSessionProps> = ({
               className="h-full"
             />
           ) : (
-            // ✅ 重构布局: 使用 Flexbox 实现消息区域与输入区域的完全分离
-            // 消息区域独立滚动，输入区域固定在底部
-            <div className="h-full flex flex-col relative">
+            // In new session mode: min-h-full lets the container grow beyond
+            // the parent when there are many recent projects, while ensuring
+            // it fills the viewport when content is short.
+            // In active session mode: h-full locks to parent height so the
+            // virtualised message list can manage its own scroll area.
+            <div className={cn(
+              "flex flex-col relative",
+              isNewSessionMode ? "min-h-full" : "h-full"
+            )}>
               {projectPathInput}
               <PlanModeStatusBar isPlanMode={isPlanMode} />
               {messagesList}

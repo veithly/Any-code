@@ -57,6 +57,7 @@
     "theme": "主题",
     "themeLight": "浅色",
     "themeDark": "深色",
+    "themeSystem": "跟随系统",
     "themeDescription": "选择界面主题",
     "claudeBinary": "Claude 二进制文件",
     "storage": "存储",
@@ -344,7 +345,16 @@
     "systemPromptPlaceholder": "你是一个专业的代码审查专家...",
     "guidancePlaceholder": "按照以下步骤执行任务...",
     "defaultAgentContent": "你是一个专业的 AI 助手。\n\n在执行任务时：\n- 仔细分析需求\n- 提供清晰的解决方案\n- 遵循最佳实践",
-    "defaultSkillContent": "按照以下步骤执行任务：\n\n1. 分析输入\n2. 执行操作\n3. 返回结果"
+    "defaultSkillContent": "按照以下步骤执行任务：\n\n1. 分析输入\n2. 执行操作\n3. 返回结果",
+    "disabled": "已禁用",
+    "disable": "禁用",
+    "enable": "启用",
+    "reinstall": "重新安装插件",
+    "uninstall": "卸载插件",
+    "confirmUninstall": "确定要卸载插件「{name}」吗？这将从磁盘删除插件文件，此操作无法撤销。",
+    "toggleFailed": "切换插件状态失败",
+    "uninstallFailed": "卸载插件失败",
+    "reinstallFailed": "重新安装插件失败"
   },
   "autoCompact": {
     "title": "自动上下文管理",

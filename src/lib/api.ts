@@ -2866,6 +2866,47 @@ export const api = {
   },
 
   /**
+   * Toggle a plugin's enabled/disabled state
+   * @param pluginName - The plugin key (e.g. "plugin-name@marketplace")
+   * @returns The new enabled state (true = enabled, false = disabled)
+   */
+  async togglePluginEnabled(pluginName: string): Promise<boolean> {
+    try {
+      return await invoke<boolean>("toggle_plugin_enabled", { pluginName });
+    } catch (error) {
+      console.error("Failed to toggle plugin enabled state:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Uninstall a plugin completely
+   * @param pluginName - The plugin key (e.g. "plugin-name@marketplace")
+   */
+  async uninstallPlugin(pluginName: string): Promise<void> {
+    try {
+      return await invoke<void>("uninstall_plugin", { pluginName });
+    } catch (error) {
+      console.error("Failed to uninstall plugin:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Reinstall a plugin from its marketplace source
+   * @param pluginSource - The marketplace source identifier
+   * @returns CLI output from the reinstall command
+   */
+  async reinstallPlugin(pluginSource: string): Promise<string> {
+    try {
+      return await invoke<string>("reinstall_plugin", { pluginSource });
+    } catch (error) {
+      console.error("Failed to reinstall plugin:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Open plugins directory
    */
   async openPluginsDirectory(projectPath?: string): Promise<string> {

@@ -29,7 +29,7 @@ export const SessionHeader: React.FC<SessionHeaderProps> = ({
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 }}
-      className="p-6 border-b border-border flex-shrink-0 bg-muted/20"
+      className="p-6 border-b border-border flex-shrink min-h-0 overflow-y-auto bg-muted/20"
     >
       {/* Header section */}
       <div className="max-w-3xl mx-auto space-y-4">

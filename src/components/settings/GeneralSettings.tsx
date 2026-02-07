@@ -28,7 +28,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
   setToast
 }) => {
   const { t } = useTranslation();
-  const { theme, setTheme } = useTheme();
+  const { themeMode, setThemeMode } = useTheme();
 
   // Custom Claude path state
   const [customClaudePath, setCustomClaudePath] = useState<string>("");
@@ -264,18 +264,25 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <Button
-                variant={theme === 'light' ? 'default' : 'outline'}
+                variant={themeMode === 'light' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setTheme('light')}
+                onClick={() => setThemeMode('light')}
               >
                 {t('settings.themeLight')}
               </Button>
               <Button
-                variant={theme === 'dark' ? 'default' : 'outline'}
+                variant={themeMode === 'dark' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setTheme('dark')}
+                onClick={() => setThemeMode('dark')}
               >
                 {t('settings.themeDark')}
+              </Button>
+              <Button
+                variant={themeMode === 'system' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setThemeMode('system')}
+              >
+                {t('settings.themeSystem')}
               </Button>
             </div>
           </div>

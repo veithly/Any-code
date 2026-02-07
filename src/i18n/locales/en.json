@@ -57,6 +57,7 @@
     "theme": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
+    "themeSystem": "System",
     "themeDescription": "Choose interface theme",
     "claudeBinary": "Claude Binary",
     "storage": "Storage",
@@ -344,7 +345,16 @@
     "systemPromptPlaceholder": "You are a professional code review expert...",
     "guidancePlaceholder": "Follow these steps to execute the task...",
     "defaultAgentContent": "You are a professional AI assistant.\n\nWhen executing tasks:\n- Analyze requirements carefully\n- Provide clear solutions\n- Follow best practices",
-    "defaultSkillContent": "Follow these steps to execute the task:\n\n1. Analyze input\n2. Execute operation\n3. Return result"
+    "defaultSkillContent": "Follow these steps to execute the task:\n\n1. Analyze input\n2. Execute operation\n3. Return result",
+    "disabled": "Disabled",
+    "disable": "Disable",
+    "enable": "Enable",
+    "reinstall": "Reinstall plugin",
+    "uninstall": "Uninstall plugin",
+    "confirmUninstall": "Are you sure you want to uninstall the plugin \"{name}\"? This will remove the plugin files from disk. This action cannot be undone.",
+    "toggleFailed": "Failed to toggle plugin state",
+    "uninstallFailed": "Failed to uninstall plugin",
+    "reinstallFailed": "Failed to reinstall plugin"
   },
   "autoCompact": {
     "title": "Auto Context Management",

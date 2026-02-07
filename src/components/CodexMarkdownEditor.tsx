@@ -7,6 +7,7 @@ import { Toast, ToastContainer } from "@/components/ui/toast";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface CodexMarkdownEditorProps {
   /**
@@ -30,6 +31,7 @@ export const CodexMarkdownEditor: React.FC<CodexMarkdownEditorProps> = ({
   className,
 }) => {
   const { t } = useTranslation();
+  const { theme } = useTheme();
   const [content, setContent] = useState<string>("");
   const [originalContent, setOriginalContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -191,7 +193,7 @@ export const CodexMarkdownEditor: React.FC<CodexMarkdownEditorProps> = ({
               </div>
             </div>
           ) : (
-            <div className="h-full rounded-lg border border-border overflow-hidden shadow-sm" data-color-mode="dark">
+            <div className="h-full rounded-lg border border-border overflow-hidden shadow-sm" data-color-mode={theme}>
               <MDEditor
                 value={content}
                 onChange={(val) => setContent(val || "")}

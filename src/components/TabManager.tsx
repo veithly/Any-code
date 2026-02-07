@@ -196,13 +196,18 @@ export const TabManager: React.FC<TabManagerProps> = ({
       return;
     }
 
-    // Priority 2: Initial project path provided
+    // Priority 2: Initial project path provided (user wants a NEW session)
     if (initialProjectPath) {
-      // 🔧 FIX: 检查是否已有相同 projectPath 的标签页（且该标签页没有 session，即是新建会话）
+      // 🔧 FIX: Only reuse tabs that are type 'new' (no session assigned yet)
+      // Do NOT reuse tabs that already have a session - the user explicitly wants a fresh new session.
+      // Previously this matched ANY tab with the same path, which caused the bug where
+      // clicking "New Session" would switch to an existing session tab and resume it
+      // instead of starting fresh.
       const normalizedInitPath = normalizePath(initialProjectPath);
       const existingTab = tabs.find(t => {
-        const tabPath = t.projectPath || t.session?.project_path;
-        // 只匹配没有 session（新建会话）或 session.project_path 相同的标签页
+        // Only match 'new' type tabs (no session) with the same project path
+        if (t.type !== 'new' || t.session) return false;
+        const tabPath = t.projectPath;
         return tabPath && normalizePath(tabPath) === normalizedInitPath;
       });
       if (existingTab) {

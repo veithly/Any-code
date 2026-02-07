@@ -182,34 +182,34 @@
   padding: 0.571em;
 }
 
-/* Dark mode adjustments */
-.prose.dark\:prose-invert {
+/* Dark mode adjustments - scoped to .dark class on root */
+.dark .prose {
   color: var(--color-foreground);
 }
 
-.prose.dark\:prose-invert a {
+.dark .prose a {
   color: var(--color-primary);
 }
 
-.prose.dark\:prose-invert strong {
+.dark .prose strong {
   color: inherit;
 }
 
-.prose.dark\:prose-invert code {
+.dark .prose code {
   color: var(--color-foreground);
   background-color: var(--color-muted);
 }
 
-.prose.dark\:prose-invert pre {
+.dark .prose pre {
   background-color: rgb(13, 17, 23);
   border: 1px solid var(--color-border);
 }
 
-.prose.dark\:prose-invert thead {
+.dark .prose thead {
   border-bottom-color: var(--color-border);
 }
 
-.prose.dark\:prose-invert tbody tr {
+.dark .prose tbody tr {
   border-bottom-color: var(--color-border);
 }
 

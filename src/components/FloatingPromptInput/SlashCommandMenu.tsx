@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useRef, useMemo, useCallback } from 'react';
-import { Command, Terminal, Settings, GitBranch, Clock, Sparkles } from 'lucide-react';
+import { Command, Terminal, Settings, GitBranch, Clock, Sparkles, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   type SlashCommand,
@@ -59,6 +59,8 @@ const getCategoryIcon = (category: string) => {
       return <Settings className="h-3.5 w-3.5" />;
     case 'custom':
       return <Command className="h-3.5 w-3.5" />;
+    case 'plugin':
+      return <Puzzle className="h-3.5 w-3.5" />;
     default:
       return <Command className="h-3.5 w-3.5" />;
   }

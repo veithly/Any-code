@@ -620,6 +620,185 @@ fn count_plugin_components(plugin_dir: &Path) -> PluginComponents {
     components
 }
 
+/// Toggle a plugin's enabled/disabled status
+///
+/// Reads installed_plugins.json, finds the plugin by key, toggles the "disabled" field,
+/// and writes back. Returns the new enabled state (true = enabled, false = disabled).
+#[tauri::command]
+pub async fn toggle_plugin_enabled(plugin_name: String) -> Result<bool, String> {
+    info!("Toggling plugin enabled state: {}", plugin_name);
+
+    let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
+    let installed_plugins_path = claude_dir.join("plugins").join("installed_plugins.json");
+
+    if !installed_plugins_path.exists() {
+        return Err("installed_plugins.json not found".to_string());
+    }
+
+    let content = fs::read_to_string(&installed_plugins_path)
+        .map_err(|e| format!("Failed to read installed_plugins.json: {}", e))?;
+
+    let mut root: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse installed_plugins.json: {}", e))?;
+
+    // Navigate to plugins.<plugin_name>[0].disabled
+    let plugins = root
+        .get_mut("plugins")
+        .and_then(|p| p.as_object_mut())
+        .ok_or("Invalid installed_plugins.json: missing 'plugins' object")?;
+
+    let installations = plugins
+        .get_mut(&plugin_name)
+        .and_then(|v| v.as_array_mut())
+        .ok_or(format!("Plugin '{}' not found", plugin_name))?;
+
+    let installation = installations
+        .first_mut()
+        .and_then(|v| v.as_object_mut())
+        .ok_or(format!("Plugin '{}' has no installations", plugin_name))?;
+
+    // Toggle: if disabled is true, set to false; if false/absent, set to true
+    let currently_disabled = installation
+        .get("disabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let new_disabled = !currently_disabled;
+    installation.insert(
+        "disabled".to_string(),
+        serde_json::Value::Bool(new_disabled),
+    );
+
+    // Write back with pretty formatting
+    let output = serde_json::to_string_pretty(&root)
+        .map_err(|e| format!("Failed to serialize installed_plugins.json: {}", e))?;
+
+    fs::write(&installed_plugins_path, output)
+        .map_err(|e| format!("Failed to write installed_plugins.json: {}", e))?;
+
+    let new_enabled = !new_disabled;
+    info!(
+        "Plugin '{}' is now {}",
+        plugin_name,
+        if new_enabled { "enabled" } else { "disabled" }
+    );
+
+    Ok(new_enabled)
+}
+
+/// Uninstall a plugin completely
+///
+/// Removes the plugin entry from installed_plugins.json and deletes
+/// the plugin's install directory from disk.
+#[tauri::command]
+pub async fn uninstall_plugin(plugin_name: String) -> Result<(), String> {
+    info!("Uninstalling plugin: {}", plugin_name);
+
+    let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
+    let installed_plugins_path = claude_dir.join("plugins").join("installed_plugins.json");
+
+    if !installed_plugins_path.exists() {
+        return Err("installed_plugins.json not found".to_string());
+    }
+
+    let content = fs::read_to_string(&installed_plugins_path)
+        .map_err(|e| format!("Failed to read installed_plugins.json: {}", e))?;
+
+    let mut root: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse installed_plugins.json: {}", e))?;
+
+    let plugins = root
+        .get_mut("plugins")
+        .and_then(|p| p.as_object_mut())
+        .ok_or("Invalid installed_plugins.json: missing 'plugins' object")?;
+
+    // Get the install path before removing the entry
+    let install_path = plugins
+        .get(&plugin_name)
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|inst| inst.get("installPath"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Remove the plugin entry
+    if plugins.remove(&plugin_name).is_none() {
+        return Err(format!("Plugin '{}' not found", plugin_name));
+    }
+
+    // Write back the modified JSON
+    let output = serde_json::to_string_pretty(&root)
+        .map_err(|e| format!("Failed to serialize installed_plugins.json: {}", e))?;
+
+    fs::write(&installed_plugins_path, output)
+        .map_err(|e| format!("Failed to write installed_plugins.json: {}", e))?;
+
+    // Delete the install directory if it exists
+    if let Some(path_str) = install_path {
+        let install_dir = Path::new(&path_str);
+        if install_dir.exists() {
+            fs::remove_dir_all(install_dir).map_err(|e| {
+                format!(
+                    "Plugin removed from config but failed to delete directory '{}': {}",
+                    path_str, e
+                )
+            })?;
+            info!("Deleted plugin directory: {}", path_str);
+        }
+    }
+
+    info!("Plugin '{}' uninstalled successfully", plugin_name);
+    Ok(())
+}
+
+/// Reinstall a plugin by running `claude /install-plugin <source>`
+///
+/// Executes the Claude CLI to reinstall the plugin from its marketplace source.
+/// Returns the CLI output (stdout + stderr) for display to the user.
+#[tauri::command]
+pub async fn reinstall_plugin(plugin_source: String) -> Result<String, String> {
+    info!("Reinstalling plugin from source: {}", plugin_source);
+
+    use std::process::Command as StdCommand;
+
+    // Determine the claude binary name based on platform
+    let claude_cmd = if cfg!(target_os = "windows") {
+        "claude.exe"
+    } else {
+        "claude"
+    };
+
+    let output = StdCommand::new(claude_cmd)
+        .args(["/install-plugin", &plugin_source])
+        .output()
+        .map_err(|e| format!("Failed to execute claude CLI: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !output.status.success() {
+        let error_msg = if stderr.is_empty() {
+            stdout.clone()
+        } else {
+            stderr.clone()
+        };
+        return Err(format!(
+            "Plugin reinstall failed (exit code {}): {}",
+            output.status.code().unwrap_or(-1),
+            error_msg
+        ));
+    }
+
+    let result = if stdout.is_empty() {
+        "Plugin reinstalled successfully".to_string()
+    } else {
+        stdout
+    };
+
+    info!("Plugin reinstall result: {}", result.trim());
+    Ok(result)
+}
+
 /// Open plugins directory
 #[tauri::command]
 pub async fn open_plugins_directory(project_path: Option<String>) -> Result<String, String> {

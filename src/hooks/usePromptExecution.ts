@@ -21,6 +21,7 @@ import type { ModelType } from '@/components/FloatingPromptInput/types';
 // 🔧 FIX: 导入 CodexEventConverter 类，在每个会话中创建独立实例避免全局单例污染
 import { CodexEventConverter, extractCodexRateLimitsFromEvent } from '@/lib/codexConverter';
 import type { CodexExecutionMode, CodexRateLimits } from '@/types/codex';
+import { cacheModelFromInitMessage } from '@/lib/modelNameParser';
 
 // ============================================================================
 // Global Type Declarations
@@ -1324,6 +1325,11 @@ export function usePromptExecution(config: UsePromptExecutionConfig): UsePromptE
             handleStreamMessage(messagePayload, userInputTranslation || undefined);
 
             if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
+              // Cache model display name from init message for dynamic model selector
+              if (msg.model) {
+                cacheModelFromInitMessage(msg.model);
+              }
+
               if (!currentSessionId || currentSessionId !== msg.session_id) {
                 currentSessionId = msg.session_id;
                 setClaudeSessionId(msg.session_id);

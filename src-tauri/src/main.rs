@@ -125,7 +125,7 @@ use commands::extensions::{
     create_skill, create_subagent, list_agent_skills, list_custom_slash_commands,
     list_gemini_custom_slash_commands, list_plugins, list_subagents, open_agents_directory,
     open_commands_directory, open_plugins_directory, open_skills_directory, read_skill,
-    read_subagent,
+    read_subagent, reinstall_plugin, toggle_plugin_enabled, uninstall_plugin,
 };
 use commands::file_operations::{open_directory_in_explorer, open_file_with_default_app};
 use commands::gemini::{
@@ -440,6 +440,9 @@ fn main() {
             check_rewind_capabilities,
             // Claude Extensions (Plugins, Subagents, Skills & Custom Commands)
             list_plugins,
+            toggle_plugin_enabled,
+            uninstall_plugin,
+            reinstall_plugin,
             list_subagents,
             list_agent_skills,
             list_custom_slash_commands,

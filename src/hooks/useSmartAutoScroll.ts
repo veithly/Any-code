@@ -60,9 +60,11 @@ export function useSmartAutoScroll(config: SmartAutoScrollConfig): SmartAutoScro
   // Refs
   const parentRef = useRef<HTMLDivElement>(null);
   const lastScrollPositionRef = useRef(0);
-  const isAutoScrollingRef = useRef(false); // 🆕 Track if scroll was initiated by code
+  const isAutoScrollingRef = useRef(false); // Track if scroll was initiated by code
+  const autoScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Timer for resetting auto-scroll flag
+  const prevMessageCountRef = useRef(0); // Track previous message count for new message detection
 
-  // 🆕 计算最后一条消息的内容哈希，用于检测内容变化
+  // 计算最后一条消息的内容哈希，用于检测内容变化
   const lastMessageHash = useMemo(
     () => getLastMessageContentHash(displayableMessages),
     [displayableMessages]
@@ -75,9 +77,23 @@ export function useSmartAutoScroll(config: SmartAutoScrollConfig): SmartAutoScro
       // Check if we actually need to scroll to avoid unnecessary events
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
       const targetScrollTop = scrollHeight - clientHeight;
-      
+
       if (Math.abs(scrollTop - targetScrollTop) > 1) { // Small tolerance
+        // Set the flag and use a timeout to reset it, avoiding race conditions
+        // where a single scrollTo triggers multiple scroll events
         isAutoScrollingRef.current = true;
+        if (autoScrollTimerRef.current) {
+          clearTimeout(autoScrollTimerRef.current);
+        }
+        // Use longer timeout for smooth scrolling to cover the animation duration (~300ms),
+        // preventing false "user scrolled" detections from animation-triggered scroll events.
+        // Use shorter timeout for instant scrolling to allow quick user scroll detection.
+        const flagTimeout = behavior === 'smooth' ? 300 : 80;
+        autoScrollTimerRef.current = setTimeout(() => {
+          isAutoScrollingRef.current = false;
+          autoScrollTimerRef.current = null;
+        }, flagTimeout);
+
         scrollElement.scrollTo({
           top: targetScrollTop,
           behavior
@@ -93,18 +109,18 @@ export function useSmartAutoScroll(config: SmartAutoScrollConfig): SmartAutoScro
 
     const handleScroll = () => {
       // 1. Check if this scroll event was triggered by our auto-scroll
+      // The flag is now reset via timeout, so all events within the timeout window are ignored
       if (isAutoScrollingRef.current) {
-        isAutoScrollingRef.current = false;
-        // Update last position to current to prevent diff calculation errors next time
         lastScrollPositionRef.current = scrollElement.scrollTop;
         return;
       }
 
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
-      
+
       // 2. Calculate distance from bottom
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      const isAtBottom = distanceFromBottom <= 50; // 50px threshold
+      // Use a forgiving threshold (150px) to account for virtualizer measurement errors
+      const isAtBottom = distanceFromBottom <= 150;
 
       // 3. Determine user intent
       // If user is not at bottom, they are viewing history -> Stop auto scroll
@@ -127,35 +143,79 @@ export function useSmartAutoScroll(config: SmartAutoScrollConfig): SmartAutoScro
     };
   }, []); // Empty deps - event listener only needs to be registered once
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoScrollTimerRef.current) {
+        clearTimeout(autoScrollTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Track message count changes and auto-enable scroll when new messages appear
+  useEffect(() => {
+    const currentCount = displayableMessages.length;
+    const prevCount = prevMessageCountRef.current;
+    prevMessageCountRef.current = currentCount;
+
+    // When new messages arrive (count increased) and we were near the bottom, re-enable auto-scroll
+    if (currentCount > prevCount && prevCount > 0) {
+      if (parentRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+        // If user was within a generous range of the bottom, re-enable auto-scroll
+        if (distanceFromBottom <= 300) {
+          setUserScrolled(false);
+          setShouldAutoScroll(true);
+        }
+      }
+    }
+  }, [displayableMessages.length]);
+
   // Smart auto-scroll for new messages (initial load or update)
-  // 🆕 使用 lastMessageHash 替代 displayableMessages.length，确保内容变化时也能触发滚动
+  // Uses lastMessageHash instead of displayableMessages.length to ensure
+  // content changes during streaming also trigger scrolling
   useEffect(() => {
     if (displayableMessages.length > 0 && shouldAutoScroll && !userScrolled) {
       const timeoutId = setTimeout(() => {
-        performAutoScroll();
+        // Use rAF to ensure scroll happens after DOM updates are painted
+        requestAnimationFrame(() => performAutoScroll());
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
   }, [lastMessageHash, shouldAutoScroll, userScrolled]);
 
-  // Enhanced streaming scroll - only when user hasn't manually scrolled away
-  // 🆕 流式输出时持续滚动，不再依赖消息长度
+  // Enhanced streaming scroll - use requestAnimationFrame for smoother
+  // rendering-synced scrolling instead of raw setInterval.
+  // rAF ensures scroll operations align with the browser's paint cycle,
+  // reducing jank and improving coordination with the virtualizer.
   useEffect(() => {
     if (isLoading && shouldAutoScroll && !userScrolled) {
       // Immediate scroll on update
-      performAutoScroll();
+      performAutoScroll('auto');
 
-      // Frequent updates during streaming (every 150ms for smoother experience)
-      const intervalId = setInterval(performAutoScroll, 150);
+      // rAF-based loop throttled to ~100ms for rendering-synced scroll updates
+      let rafId: number;
+      let lastScrollTime = 0;
 
-      return () => clearInterval(intervalId);
+      const tick = (timestamp: number) => {
+        if (timestamp - lastScrollTime >= 100) {
+          performAutoScroll('auto');
+          lastScrollTime = timestamp;
+        }
+        rafId = requestAnimationFrame(tick);
+      };
+
+      rafId = requestAnimationFrame(tick);
+
+      return () => cancelAnimationFrame(rafId);
     }
   }, [isLoading, shouldAutoScroll, userScrolled]);
 
-  // 🆕 当消息内容变化时触发额外滚动（确保流式输出时跟踪最新内容）
+  // 当消息内容变化时触发额外滚动（确保流式输出时跟踪最新内容）
   // 进入历史会话/初次渲染时，虚拟列表的测量会在短时间内不断修正高度，导致首次滚动不到真正的底部。
-  // 在非流式状态下提供一个短暂的“粘底”窗口，确保最终停在最新消息处。
+  // 在非流式状态下提供一个短暂的"粘底"窗口，确保最终停在最新消息处。
   useEffect(() => {
     if (isLoading) return;
     if (!shouldAutoScroll || userScrolled || displayableMessages.length === 0) return;
@@ -163,7 +223,9 @@ export function useSmartAutoScroll(config: SmartAutoScrollConfig): SmartAutoScro
     let ticks = 0;
     const intervalId = setInterval(() => {
       ticks += 1;
-      performAutoScroll('auto');
+      // Use rAF to sync scroll with the rendering cycle, ensuring the
+      // virtualizer's height re-measurements are applied before scrolling
+      requestAnimationFrame(() => performAutoScroll('auto'));
       if (ticks >= 8) {
         clearInterval(intervalId);
       }

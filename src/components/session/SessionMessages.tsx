@@ -170,66 +170,124 @@ export const SessionMessages = forwardRef<SessionMessagesRef, SessionMessagesPro
     scrollToBottom: () => {
       if (messageGroups.length === 0) return;
 
-      // 使用虚拟列表的 scrollToIndex 滚动到最后一项
-      // 这比使用 scrollHeight 更可靠，因为虚拟列表的高度是估算的
+      // Use virtualizer's scrollToIndex for reliable scrolling to the last item
       rowVirtualizer.scrollToIndex(messageGroups.length - 1, {
         align: 'end',
-        behavior: 'smooth',
+        behavior: 'auto',
       });
 
-      // 额外的保障：等待虚拟列表渲染后，再次确保滚动到底部
-      // 因为 scrollToIndex 后虚拟列表可能会重新测量高度
-      setTimeout(() => {
-        if (parentRef.current) {
-          parentRef.current.scrollTo({
-            top: parentRef.current.scrollHeight,
-            behavior: 'smooth',
+      // Schedule rAF-based follow-up scrolls to handle the virtualizer's
+      // progressive height re-measurements. After scrollToIndex renders the
+      // target items, the virtualizer measures their actual heights which may
+      // differ from estimates, shifting the total scrollHeight.
+      // Uses requestAnimationFrame to sync with rendering cycle and checks
+      // whether we actually reached the bottom before each follow-up scroll.
+      const followUpDelays = [50, 150, 300, 500];
+      followUpDelays.forEach((delay) => {
+        setTimeout(() => {
+          requestAnimationFrame(() => {
+            if (parentRef.current) {
+              const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
+              // Only scroll if we haven't reached the true bottom yet
+              if (scrollHeight - scrollTop - clientHeight > 1) {
+                parentRef.current.scrollTo({
+                  top: scrollHeight,
+                  behavior: 'auto',
+                });
+              }
+            }
           });
-        }
-      }, 150);
+        }, delay);
+      });
     },
     scrollToPrompt: (promptIndex: number) => {
-      // 找到 promptIndex 对应的消息在 messageGroups 中的索引
-      let currentPromptIndex = 0;
+      // Find the targetGroupIndex for the given promptIndex.
+      // Uses getPromptIndexForMessage to ensure counting logic matches backend
+      // (excludes warmup/skill/sidechain/tool-result-only non-real user inputs)
       let targetGroupIndex = -1;
 
       for (let i = 0; i < messageGroups.length; i++) {
         const group = messageGroups[i];
 
-        // 检查普通消息
-        if (group.type === 'normal') {
-          const message = group.message;
-          const messageType = (message as any).type || (message.message as any)?.role;
-
-          if (messageType === 'user') {
-            if (currentPromptIndex === promptIndex) {
+        // Only check normal-type user messages
+        if (group.type === 'normal' && group.message.type === 'user') {
+          if (getPromptIndexForMessage) {
+            const msgPromptIndex = getPromptIndexForMessage(group.index);
+            if (msgPromptIndex === promptIndex) {
               targetGroupIndex = i;
               break;
             }
-            currentPromptIndex++;
           }
         }
-        // 子代理组不包含 user 消息，跳过
       }
 
       if (targetGroupIndex === -1) {
-        console.warn(`[Prompt Navigation] Prompt #${promptIndex} not found`);
+        console.warn(`[Prompt Navigation] Prompt #${promptIndex} not found in ${messageGroups.length} groups`);
         return;
       }
 
-      // 先使用虚拟列表滚动到该索引（让元素渲染出来）
+      // Step 1: Use 'auto' (instant) behavior so the virtualizer immediately
+      // renders items near the target area, instead of 'smooth' which delays
+      // rendering until the scroll animation reaches the target viewport
       rowVirtualizer.scrollToIndex(targetGroupIndex, {
         align: 'center',
-        behavior: 'smooth',
+        behavior: 'auto',
       });
 
-      // 等待虚拟列表渲染完成后，再进行精确定位
-      setTimeout(() => {
+      // Step 2: Robust element finding with rAF + retry mechanism.
+      // The virtualizer needs time to measure and render the target row
+      // after the scroll position changes.
+      let attempts = 0;
+      const maxAttempts = 10;
+      const pollInterval = 100; // ms between retries, total ~1s max wait
+
+      const tryFindAndHighlight = () => {
+        attempts++;
         const element = document.getElementById(`prompt-${promptIndex}`);
+
         if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Element found - use rAF to schedule scrollIntoView after
+          // the virtualizer finishes its current layout pass
+          requestAnimationFrame(() => {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Visual feedback: brief highlight flash to help user identify target
+            try {
+              element.animate(
+                [
+                  { boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.6)' },
+                  { boxShadow: '0 0 0 3px rgba(59, 130, 246, 0)' },
+                ],
+                { duration: 1500, easing: 'ease-out' }
+              );
+            } catch {
+              // Web Animations API not available - silently ignore
+            }
+          });
+          return;
         }
-      }, 300);
+
+        if (attempts < maxAttempts) {
+          // Re-trigger scrollToIndex every 3 attempts to nudge the virtualizer
+          // in case it hasn't rendered the target row yet
+          if (attempts % 3 === 0) {
+            rowVirtualizer.scrollToIndex(targetGroupIndex, {
+              align: 'center',
+              behavior: 'auto',
+            });
+          }
+          setTimeout(tryFindAndHighlight, pollInterval);
+        } else {
+          console.warn(`[Prompt Navigation] Element #prompt-${promptIndex} not found after ${maxAttempts} attempts`);
+        }
+      };
+
+      // Wait for two animation frames to let the virtualizer process
+      // the scroll and render the target area before searching for the element
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          tryFindAndHighlight();
+        });
+      });
     }
   }));
 

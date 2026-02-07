@@ -30,6 +30,17 @@ const TabSessionWrapperComponent: React.FC<TabSessionWrapperProps> = ({
     sessionId: null,
   });
 
+  // 🔧 FIX: Cache the initial session prop value. When a tab is created as "new" (session=undefined),
+  // we must always pass undefined to ClaudeCodeSession, even if the session prop later becomes
+  // defined (via updateTabSession + isActive-triggered re-render). This prevents ClaudeCodeSession
+  // from auto-loading/resuming the session that was created by its own streaming.
+  const initialSessionRef = useRef<Session | undefined>(session);
+  // Determine the effective session to pass to ClaudeCodeSession:
+  // - If the initial session was undefined (new tab), always pass undefined
+  //   (the component manages its own session through extractedSessionInfo)
+  // - If the initial session was defined (existing session), pass the current session prop
+  const effectiveSessionForChild = initialSessionRef.current === undefined ? undefined : session;
+
   // 🔧 NEW: Register cleanup callback for proper resource management
   useEffect(() => {
     const cleanup = async () => {
@@ -111,7 +122,7 @@ const TabSessionWrapperComponent: React.FC<TabSessionWrapperProps> = ({
       // 🔧 REMOVED: display control CSS - now using conditional rendering
     >
       <ClaudeCodeSession
-        session={session}
+        session={effectiveSessionForChild}
         initialProjectPath={initialProjectPath}
         onStreamingChange={handleStreamingChange}
         onProjectPathChange={handleProjectPathChange}

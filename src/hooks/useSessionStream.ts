@@ -24,6 +24,11 @@ import {
 } from '@/lib/stream';
 import { codexConverter } from '@/lib/codexConverter';
 import { convertGeminiSessionDetailToClaudeMessages } from '@/lib/geminiConverter';
+import {
+  cacheModelFromInitMessage,
+  cacheCodexModelFromStream,
+  cacheGeminiModelFromStream,
+} from '@/lib/modelNameParser';
 
 /**
  * Hook 配置
@@ -79,6 +84,14 @@ interface UseSessionStreamConfig {
    * 会话不存在时的回调
    */
   onSessionNotFound?: () => void;
+
+  /**
+   * 🔧 FIX: Whether this is a new session instance (started without a session prop).
+   * When true, loadSessionHistory and checkForActiveSession will be no-ops
+   * even if session becomes defined later (e.g., from session prop upgrade).
+   * This prevents the "reverting to latest session" bug.
+   */
+  isNewSessionInstance?: boolean;
 }
 
 /**
@@ -124,6 +137,7 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
     setCodexRateLimits,
     processMessageWithTranslation,
     onSessionNotFound,
+    isNewSessionInstance,
   } = config;
 
   // Internal refs
@@ -161,6 +175,14 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
    */
   const loadSessionHistory = useCallback(async () => {
     if (!session) return;
+
+    // 🔧 FIX: Do not load session history if this is a new session instance.
+    // The component manages its own messages through streaming; loading history
+    // would overwrite in-flight or already-displayed messages.
+    if (isNewSessionInstance) {
+      console.debug('[useSessionStream] Skipping loadSessionHistory - new session instance');
+      return;
+    }
 
     const currentSessionId = session.id;
     loadingSessionIdRef.current = currentSessionId;
@@ -264,6 +286,20 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
         return msg;
       });
 
+      // Extract model display names from init messages in history
+      for (const msg of processedMessages) {
+        if (msg.type === 'system' && msg.subtype === 'init' && msg.model) {
+          if (engine === 'codex') {
+            cacheCodexModelFromStream(msg.model);
+          } else if (engine === 'gemini') {
+            cacheGeminiModelFromStream(msg.model);
+          } else {
+            cacheModelFromInitMessage(msg.model);
+          }
+          break; // Only need the first init message
+        }
+      }
+
       // 竞态条件检查
       if (loadingSessionIdRef.current !== currentSessionId) {
         console.debug('[useSessionStream] Session changed during loading, discarding results');
@@ -303,6 +339,7 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
     }
   }, [
     session,
+    isNewSessionInstance,
     isMountedRef,
     getEngine,
     setIsLoading,
@@ -318,6 +355,13 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
    */
   const checkForActiveSession = useCallback(async () => {
     if (!session) return;
+
+    // 🔧 FIX: Do not check for active sessions if this is a new session instance.
+    // Reconnecting would set up duplicate event listeners and show stale state.
+    if (isNewSessionInstance) {
+      console.debug('[useSessionStream] Skipping checkForActiveSession - new session instance');
+      return;
+    }
 
     const engine = getEngine();
     if (engine === 'codex' || engine === 'gemini') return;
@@ -343,7 +387,7 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
     } catch (err) {
       console.error('[useSessionStream] Failed to check active sessions:', err);
     }
-  }, [session, getEngine, setClaudeSessionId]);
+  }, [session, isNewSessionInstance, getEngine, setClaudeSessionId]);
 
   /**
    * 重新连接到会话
@@ -378,6 +422,16 @@ export function useSessionStream(config: UseSessionStreamConfig): UseSessionStre
           // 使用统一的转换器注册中心
           const result = converterRegistry.convertLine(event.payload, engine);
           if (result.message) {
+            // Cache model display name from init messages (engine-specific)
+            if (result.message.type === 'system' && result.message.subtype === 'init' && result.message.model) {
+              if (engine === 'codex') {
+                cacheCodexModelFromStream(result.message.model);
+              } else if (engine === 'gemini') {
+                cacheGeminiModelFromStream(result.message.model);
+              } else {
+                cacheModelFromInitMessage(result.message.model);
+              }
+            }
             // 加入消息队列
             messageQueueRef.current?.enqueue(result.message);
             // 处理消息（含翻译）

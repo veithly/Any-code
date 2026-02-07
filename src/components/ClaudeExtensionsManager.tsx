@@ -10,7 +10,9 @@ import {
   ChevronDown,
   ChevronRight,
   Terminal,
-  Zap
+  Zap,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -127,6 +130,96 @@ export const ClaudeExtensionsManager: React.FC<ClaudeExtensionsManagerProps> = (
     content: '',
     scope: 'project' as 'project' | 'user',
   });
+
+  // Plugin management state
+  const [togglingPlugins, setTogglingPlugins] = useState<Set<string>>(new Set());
+  const [uninstallingPlugins, setUninstallingPlugins] = useState<Set<string>>(new Set());
+  const [reinstallingPlugins, setReinstallingPlugins] = useState<Set<string>>(new Set());
+
+  // Build plugin key from name and marketplace (matching the installed_plugins.json key format)
+  const getPluginKey = (plugin: PluginInfo): string => {
+    if (plugin.marketplace) {
+      return `${plugin.name}@${plugin.marketplace}`;
+    }
+    return plugin.name;
+  };
+
+  // Toggle plugin enabled/disabled
+  const handleTogglePlugin = async (plugin: PluginInfo) => {
+    const key = getPluginKey(plugin);
+    setTogglingPlugins(prev => new Set(prev).add(key));
+    try {
+      const newEnabled = await api.togglePluginEnabled(key);
+      setPlugins(prev =>
+        prev.map(p =>
+          getPluginKey(p) === key ? { ...p, enabled: newEnabled } : p
+        )
+      );
+    } catch (error) {
+      console.error('[ClaudeExtensions] Failed to toggle plugin:', error);
+      alert(`${t('extensions.toggleFailed')}: ${error}`);
+    } finally {
+      setTogglingPlugins(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  // Uninstall plugin with confirmation
+  const handleUninstallPlugin = async (plugin: PluginInfo) => {
+    const key = getPluginKey(plugin);
+    if (!window.confirm(t('extensions.confirmUninstall').replace('{name}', plugin.name))) {
+      return;
+    }
+    setUninstallingPlugins(prev => new Set(prev).add(key));
+    try {
+      await api.uninstallPlugin(key);
+      setPlugins(prev => prev.filter(p => getPluginKey(p) !== key));
+    } catch (error) {
+      console.error('[ClaudeExtensions] Failed to uninstall plugin:', error);
+      alert(`${t('extensions.uninstallFailed')}: ${error}`);
+    } finally {
+      setUninstallingPlugins(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  // Reinstall plugin
+  const handleReinstallPlugin = async (plugin: PluginInfo) => {
+    const source = plugin.marketplace
+      ? `${plugin.marketplace}:${plugin.name}`
+      : plugin.name;
+    const key = getPluginKey(plugin);
+    setReinstallingPlugins(prev => new Set(prev).add(key));
+    try {
+      await api.reinstallPlugin(source);
+      // Reload the plugin list to reflect any changes
+      await loadPlugins();
+    } catch (error) {
+      console.error('[ClaudeExtensions] Failed to reinstall plugin:', error);
+      alert(`${t('extensions.reinstallFailed')}: ${error}`);
+    } finally {
+      setReinstallingPlugins(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  // Open a specific plugin's directory in file explorer
+  const handleOpenPluginDir = async (plugin: PluginInfo) => {
+    try {
+      await api.openDirectoryInExplorer(plugin.path);
+    } catch (error) {
+      console.error('Failed to open plugin directory:', error);
+    }
+  };
 
   // 加载插件
   const loadPlugins = async () => {
@@ -316,8 +409,13 @@ export const ClaudeExtensionsManager: React.FC<ClaudeExtensionsManagerProps> = (
                 const hasDetails = (plugin.components.commandList?.length > 0) ||
                                    (plugin.components.skillList?.length > 0) ||
                                    (plugin.components.agentList?.length > 0);
+                const pluginKey = getPluginKey(plugin);
+                const isToggling = togglingPlugins.has(pluginKey);
+                const isUninstalling = uninstallingPlugins.has(pluginKey);
+                const isReinstalling = reinstallingPlugins.has(pluginKey);
+                const isBusy = isToggling || isUninstalling || isReinstalling;
                 return (
-                <Card key={plugin.path} className="p-4">
+                <Card key={plugin.path} className={cn("p-4", !plugin.enabled && "opacity-60")}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 flex-1">
                       <Package className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
@@ -327,9 +425,13 @@ export const ClaudeExtensionsManager: React.FC<ClaudeExtensionsManagerProps> = (
                           <Badge variant="outline" className="text-xs">
                             v{plugin.version}
                           </Badge>
-                          {plugin.enabled && (
+                          {plugin.enabled ? (
                             <Badge variant="default" className="text-xs bg-green-600">
                               {t('extensions.enabled')}
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs">
+                              {t('extensions.disabled')}
                             </Badge>
                           )}
                           {plugin.marketplace && (
@@ -445,13 +547,61 @@ export const ClaudeExtensionsManager: React.FC<ClaudeExtensionsManagerProps> = (
                         )}
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleOpenPluginsDir}
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                    </Button>
+
+                    {/* Plugin management actions */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Enable/Disable toggle */}
+                      <Switch
+                        checked={plugin.enabled}
+                        onCheckedChange={() => handleTogglePlugin(plugin)}
+                        disabled={isBusy}
+                        aria-label={plugin.enabled ? t('extensions.disable') : t('extensions.enable')}
+                      />
+
+                      {/* Reinstall button */}
+                      {plugin.marketplace && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleReinstallPlugin(plugin)}
+                          disabled={isBusy}
+                          title={t('extensions.reinstall')}
+                        >
+                          {isReinstalling ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      )}
+
+                      {/* Open plugin directory */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenPluginDir(plugin)}
+                        disabled={isBusy}
+                        title={t('extensions.openDirectory')}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </Button>
+
+                      {/* Uninstall button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUninstallPlugin(plugin)}
+                        disabled={isBusy}
+                        title={t('extensions.uninstall')}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        {isUninstalling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </Card>
               )})}

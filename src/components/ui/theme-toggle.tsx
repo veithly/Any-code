@@ -1,5 +1,5 @@
 import React from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
@@ -12,29 +12,54 @@ import {
 
 interface ThemeToggleProps {
   /**
-   * 显示模式：icon-only（仅图标）或 with-text（带文字）
+   * Display mode: icon-only or with-text
    */
   variant?: 'icon-only' | 'with-text';
   /**
-   * 按钮尺寸
+   * Button size
    */
   size?: 'sm' | 'default' | 'lg';
   /**
-   * 自定义类名
+   * Custom class name
    */
   className?: string;
 }
 
+const themeModeLabels: Record<string, { zh: string; en: string }> = {
+  light: { zh: '浅色', en: 'Light' },
+  dark: { zh: '深色', en: 'Dark' },
+  system: { zh: '跟随系统', en: 'System' },
+};
+
+const nextModeTooltips: Record<string, string> = {
+  light: '切换到深色主题',
+  dark: '切换到跟随系统',
+  system: '切换到浅色主题',
+};
+
 /**
- * 主题切换组件
- * 支持亮色/暗色主题切换
+ * Theme toggle component
+ * Supports light/dark/system theme cycling
  */
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   variant = 'icon-only',
   size = 'sm',
   className = '',
 }) => {
-  const { theme, toggleTheme } = useTheme();
+  const { themeMode, toggleTheme } = useTheme();
+
+  const renderIcon = () => {
+    switch (themeMode) {
+      case 'light':
+        return <Sun className="h-3.5 w-3.5" strokeWidth={2} />;
+      case 'dark':
+        return <Moon className="h-3.5 w-3.5" strokeWidth={2} />;
+      case 'system':
+        return <Monitor className="h-3.5 w-3.5" strokeWidth={2} />;
+      default:
+        return <Sun className="h-3.5 w-3.5" strokeWidth={2} />;
+    }
+  };
 
   const button = (
     <Button
@@ -43,28 +68,19 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
       onClick={toggleTheme}
       className={cn("transition-all duration-200 hover:scale-105 rounded-full", className)}
     >
-      {theme === 'dark' ? (
-        <>
-          <Sun className="h-3.5 w-3.5" strokeWidth={2} />
-          {variant === 'with-text' && <span className="ml-1.5">主题</span>}
-        </>
-      ) : (
-        <>
-          <Moon className="h-3.5 w-3.5" strokeWidth={2} />
-          {variant === 'with-text' && <span className="ml-1.5">主题</span>}
-        </>
-      )}
+      {renderIcon()}
+      {variant === 'with-text' && <span className="ml-1.5">{themeModeLabels[themeMode]?.zh ?? themeMode}</span>}
     </Button>
   );
 
-  // 仅图标模式时显示 tooltip
+  // Show tooltip in icon-only mode
   if (variant === 'icon-only') {
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>{button}</TooltipTrigger>
           <TooltipContent>
-            <p>{theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}</p>
+            <p>{nextModeTooltips[themeMode] ?? '切换主题'}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -73,4 +89,3 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
 
   return button;
 };
-

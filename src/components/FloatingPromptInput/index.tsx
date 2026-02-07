@@ -1,9 +1,10 @@
-import React, { useState, useRef, forwardRef, useImperativeHandle, useEffect, useReducer, useCallback } from "react";
+import React, { useState, useRef, forwardRef, useImperativeHandle, useEffect, useReducer, useCallback, useMemo } from "react";
 import { AnimatePresence } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FloatingPromptInputProps, FloatingPromptInputRef, ThinkingMode, ModelType, ModelConfig } from "./types";
-import { THINKING_MODES, MODELS } from "./constants";
+import { THINKING_MODES, getModels } from "./constants";
+import { MODEL_NAMES_UPDATED_EVENT } from "@/lib/modelNameParser";
 import { useImageHandling } from "./hooks/useImageHandling";
 import { useFileSelection } from "./hooks/useFileSelection";
 import { usePromptEnhancement } from "./hooks/usePromptEnhancement";
@@ -11,6 +12,7 @@ import { usePromptSuggestion } from "./hooks/usePromptSuggestion";
 import { useDraftPersistence } from "./hooks/useDraftPersistence";
 import { useSlashCommandMenu } from "./hooks/useSlashCommandMenu";
 import { useCustomSlashCommands } from "./hooks/useCustomSlashCommands";
+import { usePluginSlashCommands } from "./hooks/usePluginSlashCommands";
 import { api } from "@/lib/api";
 import { getEnabledProviders } from "@/lib/promptEnhancementService";
 import { inputReducer, initialState } from "./reducer";
@@ -160,8 +162,28 @@ const FloatingPromptInputInner = (
     }
   }, [state.executionEngineConfig, onExecutionEngineConfigChange]);
 
-  // Dynamic model list
-  const [availableModels, setAvailableModels] = useState<ModelConfig[]>(MODELS);
+  // Dynamic model list - initialized with dynamic names from cache
+  const [availableModels, setAvailableModels] = useState<ModelConfig[]>(() => getModels());
+
+  // Listen for model name updates from stream init messages
+  useEffect(() => {
+    const handleModelNamesUpdated = () => {
+      setAvailableModels(prev => {
+        const updated = getModels();
+        // Preserve any custom model that was dynamically added
+        const customModel = prev.find(m => m.id === 'custom');
+        if (customModel) {
+          return [...updated, customModel];
+        }
+        return updated;
+      });
+    };
+
+    window.addEventListener(MODEL_NAMES_UPDATED_EVENT, handleModelNamesUpdated);
+    return () => {
+      window.removeEventListener(MODEL_NAMES_UPDATED_EVENT, handleModelNamesUpdated);
+    };
+  }, []);
 
   // 🔧 Mac 输入法兼容：追踪 IME 组合输入状态
   const [isComposing, setIsComposing] = useState(false);
@@ -281,6 +303,17 @@ const FloatingPromptInputInner = (
     engine: currentEngine,
   });
 
+  // 🆕 插件斜杠命令 Hook - 从后端获取插件技能和命令
+  const { pluginCommands } = usePluginSlashCommands({
+    projectPath,
+    enabled: isSlashCommandSupported && !state.isExpanded && !disabled,
+  });
+
+  // 合并自定义命令和插件命令
+  const allCustomCommands = useMemo(() => {
+    return [...customCommands, ...pluginCommands];
+  }, [customCommands, pluginCommands]);
+
   // 🆕 斜杠命令菜单 Hook
   const {
     isOpen: showSlashCommandMenu,
@@ -296,7 +329,7 @@ const FloatingPromptInputInner = (
       // 替换当前输入为选中的命令
       dispatch({ type: "SET_PROMPT", payload: command });
     },
-    customCommands,
+    customCommands: allCustomCommands,
     // Claude 和 Gemini 都支持斜杠命令菜单
     disabled: !isSlashCommandSupported || state.isExpanded || disabled,
     engine: currentEngine,
@@ -640,7 +673,7 @@ const FloatingPromptInputInner = (
             onSlashCommandSelect={handleSlashCommandSelect}
             onSlashCommandMenuClose={closeSlashCommandMenu}
             onSlashCommandSelectedIndexChange={setSlashCommandSelectedIndex}
-            customSlashCommands={customCommands}
+            customSlashCommands={allCustomCommands}
             engine={currentEngine}
           />
 

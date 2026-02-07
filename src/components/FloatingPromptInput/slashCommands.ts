@@ -12,7 +12,7 @@ export interface SlashCommand {
   /** 命令来源: built-in, project, user */
   source: 'built-in' | 'project' | 'user';
   /** 命令分类 */
-  category: 'session' | 'context' | 'system' | 'git' | 'config' | 'custom';
+  category: 'session' | 'context' | 'system' | 'git' | 'config' | 'custom' | 'plugin';
   /** 是否支持非交互式模式 (-p 模式) */
   supportsNonInteractive: boolean;
   /** 参数提示 */
@@ -92,6 +92,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   'git': 'Git/代码',
   'config': '配置',
   'custom': '自定义',
+  'plugin': '插件',
 };
 
 /**
